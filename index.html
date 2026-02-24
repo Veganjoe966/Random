@@ -17,7 +17,7 @@
             <div class="nav-links">
                 <a href="#" class="nav-link active">Game</a>
                 <a href="#" class="nav-link">Leaderboard</a>
-                <a href="#" class="nav-link">Bankroll</a>
+                <a href="#" class="nav-link" onclick="event.preventDefault();openBankroll()">Bankroll</a>
                 <a href="#" class="nav-link">FAQ</a>
             </div>
         </div>
@@ -27,10 +27,19 @@
                 <span class="balance-amount" id="balanceAmount">1,000.00</span>
                 <span class="balance-unit">bits</span>
             </div>
-            <button class="btn-deposit">Deposit</button>
-            <div class="user-menu">
+            <button class="btn-deposit" onclick="openDeposit()">Deposit</button>
+            <button class="btn-withdraw" onclick="openWithdraw()">Withdraw</button>
+            <div class="user-menu" onclick="toggleAccountDropdown()">
                 <span class="username">Player_1337</span>
                 <span class="dropdown-arrow">▾</span>
+                <div class="user-dropdown" id="userDropdown">
+                    <a href="#" onclick="openAccount(event)">Account</a>
+                    <a href="#" onclick="openDeposit(event)">Deposit</a>
+                    <a href="#" onclick="openWithdraw(event)">Withdraw</a>
+                    <a href="#" onclick="openBankroll(event)">Bankroll</a>
+                    <div class="dropdown-divider"></div>
+                    <a href="#" onclick="event.preventDefault()">Logout</a>
+                </div>
             </div>
         </div>
     </nav>
@@ -234,6 +243,390 @@
             </div>
         </div>
     </div>
+
+    <!-- Deposit Modal -->
+    <div class="modal-overlay" id="depositModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h2>Deposit Bitcoin</h2>
+                <button class="modal-close" onclick="closeModal('depositModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="deposit-tabs">
+                    <button class="deposit-tab active" onclick="switchDepositTab('btc', this)">Bitcoin</button>
+                    <button class="deposit-tab" onclick="switchDepositTab('lightning', this)">Lightning</button>
+                </div>
+
+                <div class="deposit-tab-content active" id="depositBtcTab">
+                    <div class="deposit-info-banner">
+                        <span class="info-icon">ℹ</span>
+                        <span>Send Bitcoin to the address below. Deposits require 1 confirmation (~10 min).</span>
+                    </div>
+
+                    <div class="deposit-address-section">
+                        <label>Your Deposit Address</label>
+                        <div class="address-box">
+                            <span class="address-text" id="depositAddress">bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh</span>
+                            <button class="copy-btn" onclick="copyAddress()">Copy</button>
+                        </div>
+                    </div>
+
+                    <div class="qr-code-section">
+                        <canvas id="qrCanvas" width="180" height="180"></canvas>
+                        <p class="qr-note">Scan with your Bitcoin wallet</p>
+                    </div>
+
+                    <div class="deposit-amounts">
+                        <label>Quick Amounts</label>
+                        <div class="amount-grid">
+                            <button class="amount-btn" onclick="simulateDeposit(1000)">1,000 bits</button>
+                            <button class="amount-btn" onclick="simulateDeposit(5000)">5,000 bits</button>
+                            <button class="amount-btn" onclick="simulateDeposit(10000)">10,000 bits</button>
+                            <button class="amount-btn" onclick="simulateDeposit(50000)">50,000 bits</button>
+                            <button class="amount-btn" onclick="simulateDeposit(100000)">100,000 bits</button>
+                            <button class="amount-btn" onclick="simulateDeposit(500000)">500,000 bits</button>
+                        </div>
+                    </div>
+
+                    <div class="deposit-conversion">
+                        <div class="conversion-row">
+                            <span>1,000 bits</span>
+                            <span class="conversion-value">= 0.00001 BTC</span>
+                            <span class="conversion-fiat">≈ $0.97 USD</span>
+                        </div>
+                        <div class="conversion-row">
+                            <span>100,000 bits</span>
+                            <span class="conversion-value">= 0.001 BTC</span>
+                            <span class="conversion-fiat">≈ $97.00 USD</span>
+                        </div>
+                    </div>
+
+                    <div class="deposit-history-section">
+                        <h3>Recent Deposits</h3>
+                        <table class="tx-table">
+                            <thead><tr><th>Date</th><th>Amount</th><th>TX Hash</th><th>Status</th></tr></thead>
+                            <tbody id="depositHistoryBody">
+                                <tr class="empty-row"><td colspan="4">No deposits yet</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="deposit-tab-content" id="depositLightningTab">
+                    <div class="deposit-info-banner">
+                        <span class="info-icon">⚡</span>
+                        <span>Lightning Network deposits are instant. Enter the amount of bits to deposit.</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Amount (bits)</label>
+                        <input type="number" id="lightningAmount" value="10000" min="100">
+                    </div>
+                    <button class="btn-bet" onclick="generateLightningInvoice()" style="margin-top:10px;">Generate Invoice</button>
+                    <div id="lightningInvoice" class="lightning-invoice-box" style="display:none;">
+                        <label>Lightning Invoice</label>
+                        <div class="address-box">
+                            <span class="address-text" id="lnInvoiceText" style="font-size:10px;"></span>
+                            <button class="copy-btn" onclick="copyLightning()">Copy</button>
+                        </div>
+                        <p class="qr-note">Pay this invoice from your Lightning wallet. Expires in 10 minutes.</p>
+                        <div class="invoice-timer">
+                            <span>Waiting for payment...</span>
+                            <div class="spinner"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Withdrawal Modal -->
+    <div class="modal-overlay" id="withdrawModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h2>Withdraw Bitcoin</h2>
+                <button class="modal-close" onclick="closeModal('withdrawModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="withdraw-balance-bar">
+                    <div class="wb-item">
+                        <span class="wb-label">Available Balance</span>
+                        <span class="wb-value" id="withdrawAvailable">0.00</span>
+                        <span class="wb-unit">bits</span>
+                    </div>
+                    <div class="wb-item">
+                        <span class="wb-label">In Bankroll</span>
+                        <span class="wb-value" id="withdrawInvested">0.00</span>
+                        <span class="wb-unit">bits</span>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Bitcoin Address</label>
+                    <input type="text" id="withdrawAddress" placeholder="Enter your BTC address (bc1q... or 1... or 3...)">
+                </div>
+
+                <div class="input-group">
+                    <label>Amount (bits)</label>
+                    <div class="input-with-buttons">
+                        <input type="number" id="withdrawAmount" value="1000" min="100">
+                        <button class="input-btn" onclick="setWithdrawHalf()">½</button>
+                        <button class="input-btn" onclick="setWithdrawAll()">All</button>
+                    </div>
+                </div>
+
+                <div class="withdraw-fee-breakdown">
+                    <div class="fee-row">
+                        <span>Withdrawal Amount</span>
+                        <span id="feeAmount">1,000 bits</span>
+                    </div>
+                    <div class="fee-row">
+                        <span>Network Fee</span>
+                        <span id="feeNetwork">−100 bits</span>
+                    </div>
+                    <div class="fee-row total">
+                        <span>You Receive</span>
+                        <span id="feeTotal">900 bits (0.000009 BTC)</span>
+                    </div>
+                </div>
+
+                <div class="withdraw-2fa">
+                    <label class="toggle-row">
+                        <span>2FA Verification</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="withdraw2fa">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </label>
+                    <div id="withdraw2faInput" style="display:none; margin-top: 8px;">
+                        <input type="text" placeholder="Enter 6-digit 2FA code" maxlength="6" id="withdraw2faCode">
+                    </div>
+                </div>
+
+                <button class="btn-bet btn-withdraw-confirm" id="withdrawBtn" onclick="processWithdraw()">
+                    Withdraw
+                </button>
+
+                <div class="withdraw-history-section">
+                    <h3>Recent Withdrawals</h3>
+                    <table class="tx-table">
+                        <thead><tr><th>Date</th><th>Amount</th><th>Address</th><th>Status</th></tr></thead>
+                        <tbody id="withdrawHistoryBody">
+                            <tr class="empty-row"><td colspan="4">No withdrawals yet</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bankroll / Investor Modal -->
+    <div class="modal-overlay" id="bankrollModal">
+        <div class="modal modal-xl">
+            <div class="modal-header">
+                <h2>Bankroll Investment</h2>
+                <button class="modal-close" onclick="closeModal('bankrollModal')">×</button>
+            </div>
+            <div class="modal-body bankroll-body">
+                <div class="bankroll-info-banner">
+                    <span class="info-icon">📊</span>
+                    <span>Invest in the house bankroll and earn a share of the house edge. The house has a 1% mathematical edge on every bet. Your profit/loss is proportional to your share of the bankroll.</span>
+                </div>
+
+                <div class="bankroll-stats-grid">
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">Total Bankroll</span>
+                        <span class="bstat-value" id="bankrollTotal">2,458,291</span>
+                        <span class="bstat-unit">bits</span>
+                    </div>
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">Your Investment</span>
+                        <span class="bstat-value accent" id="bankrollYours">0</span>
+                        <span class="bstat-unit">bits</span>
+                    </div>
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">Your Share</span>
+                        <span class="bstat-value" id="bankrollShare">0.00%</span>
+                        <span class="bstat-unit"></span>
+                    </div>
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">Your Profit</span>
+                        <span class="bstat-value green" id="bankrollProfit">+0.00</span>
+                        <span class="bstat-unit">bits</span>
+                    </div>
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">Investors</span>
+                        <span class="bstat-value" id="bankrollInvestors">48</span>
+                        <span class="bstat-unit">active</span>
+                    </div>
+                    <div class="bankroll-stat-card">
+                        <span class="bstat-label">House Edge</span>
+                        <span class="bstat-value">1.00%</span>
+                        <span class="bstat-unit">per game</span>
+                    </div>
+                </div>
+
+                <div class="bankroll-actions">
+                    <div class="bankroll-action-card">
+                        <h3>Invest</h3>
+                        <p>Add funds to the bankroll. You'll earn proportional returns from the house edge.</p>
+                        <div class="input-group">
+                            <label>Amount (bits)</label>
+                            <div class="input-with-buttons">
+                                <input type="number" id="investAmount" value="1000" min="100">
+                                <button class="input-btn" onclick="document.getElementById('investAmount').value=Math.floor(Game.balance/4)">25%</button>
+                                <button class="input-btn" onclick="document.getElementById('investAmount').value=Math.floor(Game.balance/2)">50%</button>
+                                <button class="input-btn" onclick="document.getElementById('investAmount').value=Math.floor(Game.balance)">Max</button>
+                            </div>
+                        </div>
+                        <div class="invest-projection">
+                            <span>Projected share after investing:</span>
+                            <span id="investProjection">0.00%</span>
+                        </div>
+                        <button class="btn-bet btn-invest" onclick="investInBankroll()">Invest in Bankroll</button>
+                    </div>
+
+                    <div class="bankroll-action-card">
+                        <h3>Divest</h3>
+                        <p>Withdraw your investment. You'll receive your share including any accrued profit or loss.</p>
+                        <div class="input-group">
+                            <label>Amount (bits)</label>
+                            <div class="input-with-buttons">
+                                <input type="number" id="divestAmount" value="0" min="0">
+                                <button class="input-btn" onclick="setDivest(0.25)">25%</button>
+                                <button class="input-btn" onclick="setDivest(0.5)">50%</button>
+                                <button class="input-btn" onclick="setDivest(1)">All</button>
+                            </div>
+                        </div>
+                        <div class="divest-info">
+                            <span>Current value of your investment:</span>
+                            <span id="divestValue">0 bits</span>
+                        </div>
+                        <button class="btn-bet btn-divest" onclick="divestFromBankroll()">Divest from Bankroll</button>
+                    </div>
+                </div>
+
+                <div class="bankroll-chart-section">
+                    <h3>Bankroll Performance</h3>
+                    <canvas id="bankrollChart" height="200"></canvas>
+                </div>
+
+                <div class="bankroll-investors-section">
+                    <h3>Top Investors</h3>
+                    <table class="tx-table">
+                        <thead><tr><th>#</th><th>Investor</th><th>Invested</th><th>Share</th><th>Profit</th></tr></thead>
+                        <tbody id="investorTableBody"></tbody>
+                    </table>
+                </div>
+
+                <div class="bankroll-log-section">
+                    <h3>Your Investment History</h3>
+                    <table class="tx-table">
+                        <thead><tr><th>Date</th><th>Action</th><th>Amount</th><th>Bankroll After</th></tr></thead>
+                        <tbody id="investLogBody">
+                            <tr class="empty-row"><td colspan="4">No investment history</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Account Modal -->
+    <div class="modal-overlay" id="accountModal">
+        <div class="modal modal-xl">
+            <div class="modal-header">
+                <h2>Account Overview</h2>
+                <button class="modal-close" onclick="closeModal('accountModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="account-header-bar">
+                    <div class="account-avatar">P</div>
+                    <div class="account-info">
+                        <span class="account-username">Player_1337</span>
+                        <span class="account-joined">Member since Feb 2026</span>
+                    </div>
+                </div>
+
+                <div class="account-stats-grid">
+                    <div class="account-stat">
+                        <span class="astat-label">Balance</span>
+                        <span class="astat-value gold" id="acctBalance">0</span>
+                        <span class="astat-unit">bits</span>
+                    </div>
+                    <div class="account-stat">
+                        <span class="astat-label">Total Wagered</span>
+                        <span class="astat-value" id="acctWagered">0</span>
+                        <span class="astat-unit">bits</span>
+                    </div>
+                    <div class="account-stat">
+                        <span class="astat-label">Total Profit</span>
+                        <span class="astat-value" id="acctProfit">0</span>
+                        <span class="astat-unit">bits</span>
+                    </div>
+                    <div class="account-stat">
+                        <span class="astat-label">Games Played</span>
+                        <span class="astat-value" id="acctGames">0</span>
+                        <span class="astat-unit"></span>
+                    </div>
+                    <div class="account-stat">
+                        <span class="astat-label">Deposited</span>
+                        <span class="astat-value" id="acctDeposited">0</span>
+                        <span class="astat-unit">bits</span>
+                    </div>
+                    <div class="account-stat">
+                        <span class="astat-label">Withdrawn</span>
+                        <span class="astat-value" id="acctWithdrawn">0</span>
+                        <span class="astat-unit">bits</span>
+                    </div>
+                </div>
+
+                <div class="account-tx-section">
+                    <h3>All Transactions</h3>
+                    <div class="tx-filter-bar">
+                        <button class="tx-filter active" data-filter="all" onclick="filterTx('all', this)">All</button>
+                        <button class="tx-filter" data-filter="deposit" onclick="filterTx('deposit', this)">Deposits</button>
+                        <button class="tx-filter" data-filter="withdraw" onclick="filterTx('withdraw', this)">Withdrawals</button>
+                        <button class="tx-filter" data-filter="invest" onclick="filterTx('invest', this)">Investments</button>
+                        <button class="tx-filter" data-filter="bet" onclick="filterTx('bet', this)">Bets</button>
+                    </div>
+                    <table class="tx-table">
+                        <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Details</th></tr></thead>
+                        <tbody id="accountTxBody">
+                            <tr class="empty-row"><td colspan="4">No transactions yet</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="account-security-section">
+                    <h3>Security</h3>
+                    <div class="security-row">
+                        <div>
+                            <strong>Two-Factor Authentication</strong>
+                            <p class="security-desc">Secure your account with TOTP-based 2FA</p>
+                        </div>
+                        <button class="btn-secondary" onclick="toggle2FA()">Enable 2FA</button>
+                    </div>
+                    <div class="security-row">
+                        <div>
+                            <strong>Change Password</strong>
+                            <p class="security-desc">Update your account password</p>
+                        </div>
+                        <button class="btn-secondary">Change</button>
+                    </div>
+                    <div class="security-row">
+                        <div>
+                            <strong>Session History</strong>
+                            <p class="security-desc">View recent login activity</p>
+                        </div>
+                        <button class="btn-secondary">View</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div class="toast-container" id="toastContainer"></div>
 
     <script src="js/game.js"></script>
 </body>

@@ -507,6 +507,8 @@ const Game = {
                 const text = link.textContent;
                 if (text === 'Leaderboard') {
                     this.showLeaderboard();
+                } else if (text === 'Bankroll') {
+                    openBankroll();
                 } else if (text === 'FAQ') {
                     this.showFairness();
                 }
@@ -788,6 +790,7 @@ const Game = {
         this.updateBalance();
         this.hasBet = true;
 
+        Ledger.add('bet', -amount, `Game #${this.gameId}`);
         AudioEngine.play('bet');
 
         // Add player to the list
@@ -819,6 +822,7 @@ const Game = {
         AudioEngine.play('cashout');
 
         const profit = winnings - this.betAmount;
+        Ledger.add('cashout', profit, `Game #${this.gameId} @ ${this.currentMultiplier.toFixed(2)}×`);
         ChatSystem.addMessage('System', `You cashed out at ${this.currentMultiplier.toFixed(2)}× and won ${profit.toFixed(2)} bits!`, true);
 
         if (this.autoBetting) {
@@ -1075,6 +1079,591 @@ const Game = {
 };
 
 // ========================================
+// Toast Notification System
+// ========================================
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3500);
+}
+
+// ========================================
+// Transaction Ledger
+// ========================================
+const Ledger = {
+    transactions: [],
+    totalDeposited: 0,
+    totalWithdrawn: 0,
+    totalWagered: 0,
+    totalProfit: 0,
+    gamesPlayed: 0,
+
+    add(type, amount, details = '') {
+        const now = new Date();
+        const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+            ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const txHash = Array.from(crypto.getRandomValues(new Uint8Array(16)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        this.transactions.unshift({ date, type, amount, details, txHash, status: 'confirmed' });
+
+        if (type === 'deposit') this.totalDeposited += amount;
+        if (type === 'withdraw') this.totalWithdrawn += amount;
+        if (type === 'bet') {
+            this.totalWagered += Math.abs(amount);
+            this.gamesPlayed++;
+            this.totalProfit += amount;
+        }
+        if (type === 'cashout') {
+            this.totalProfit += amount;
+        }
+    },
+
+    getByType(type) {
+        if (type === 'all') return this.transactions;
+        return this.transactions.filter(t => t.type === type);
+    }
+};
+
+// ========================================
+// Deposit System
+// ========================================
+const DepositSystem = {
+    address: '',
+    deposits: [],
+
+    init() {
+        this.generateAddress();
+    },
+
+    generateAddress() {
+        // Generate a realistic-looking bech32 BTC address
+        const chars = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+        let addr = 'bc1q';
+        for (let i = 0; i < 38; i++) {
+            addr += chars[Math.floor(Math.random() * chars.length)];
+        }
+        this.address = addr;
+        const el = document.getElementById('depositAddress');
+        if (el) el.textContent = this.address;
+    },
+
+    renderQR() {
+        const canvas = document.getElementById('qrCanvas');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const size = 180;
+        const modules = 25;
+        const cellSize = size / modules;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, size, size);
+
+        // Generate a deterministic QR-like pattern from the address
+        const seed = this.address.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+        let rng = seed;
+        const next = () => { rng = (rng * 16807 + 0) % 2147483647; return rng; };
+
+        ctx.fillStyle = '#000000';
+
+        // Position patterns (corners)
+        const drawFinder = (x, y) => {
+            for (let r = 0; r < 7; r++) {
+                for (let c = 0; c < 7; c++) {
+                    const outer = r === 0 || r === 6 || c === 0 || c === 6;
+                    const inner = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+                    if (outer || inner) {
+                        ctx.fillRect((x + c) * cellSize, (y + r) * cellSize, cellSize, cellSize);
+                    }
+                }
+            }
+        };
+        drawFinder(0, 0);
+        drawFinder(modules - 7, 0);
+        drawFinder(0, modules - 7);
+
+        // Data modules
+        for (let r = 0; r < modules; r++) {
+            for (let c = 0; c < modules; c++) {
+                // Skip finder patterns
+                if ((r < 8 && c < 8) || (r < 8 && c > modules - 9) || (r > modules - 9 && c < 8)) continue;
+                if (next() % 3 !== 0) {
+                    ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+                }
+            }
+        }
+    },
+
+    processDeposit(amount) {
+        const txHash = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        const now = new Date();
+        const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+            ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        // Add to balance
+        Game.balance += amount;
+        Game.updateBalance();
+
+        // Record
+        const deposit = { date, amount, txHash, status: 'confirmed', confirmations: 3 };
+        this.deposits.unshift(deposit);
+        Ledger.add('deposit', amount, `TX: ${txHash.substring(0, 12)}...`);
+
+        this.renderHistory();
+        showToast(`Deposit of ${amount.toLocaleString()} bits confirmed!`, 'success');
+        AudioEngine.play('cashout');
+    },
+
+    renderHistory() {
+        const body = document.getElementById('depositHistoryBody');
+        if (!body) return;
+        if (this.deposits.length === 0) {
+            body.innerHTML = '<tr class="empty-row"><td colspan="4">No deposits yet</td></tr>';
+            return;
+        }
+        body.innerHTML = this.deposits.slice(0, 10).map(d => `
+            <tr>
+                <td>${d.date}</td>
+                <td style="color: var(--accent-green); font-weight: 600">+${d.amount.toLocaleString()} bits</td>
+                <td><span class="tx-hash">${d.txHash.substring(0, 16)}...</span></td>
+                <td><span class="tx-status confirmed">${d.confirmations}/3 Confirmed</span></td>
+            </tr>
+        `).join('');
+    }
+};
+
+// ========================================
+// Withdrawal System
+// ========================================
+const WithdrawSystem = {
+    withdrawals: [],
+    networkFee: 100, // bits
+
+    updateFeeDisplay() {
+        const amount = parseFloat(document.getElementById('withdrawAmount').value) || 0;
+        document.getElementById('feeAmount').textContent = `${amount.toLocaleString()} bits`;
+        document.getElementById('feeNetwork').textContent = `−${this.networkFee} bits`;
+        const receive = Math.max(0, amount - this.networkFee);
+        const btc = (receive / 100000000).toFixed(8);
+        document.getElementById('feeTotal').textContent = `${receive.toLocaleString()} bits (${btc} BTC)`;
+    },
+
+    process() {
+        const address = document.getElementById('withdrawAddress').value.trim();
+        const amount = parseFloat(document.getElementById('withdrawAmount').value);
+
+        if (!address) {
+            showToast('Please enter a Bitcoin address.', 'error');
+            return;
+        }
+        if (!address.match(/^(bc1|[13])[a-zA-HJ-NP-Z0-9]{25,62}$/)) {
+            showToast('Invalid Bitcoin address format.', 'error');
+            return;
+        }
+        if (isNaN(amount) || amount < 100) {
+            showToast('Minimum withdrawal is 100 bits.', 'error');
+            return;
+        }
+        if (amount > Game.balance) {
+            showToast('Insufficient balance for withdrawal.', 'error');
+            return;
+        }
+
+        const receive = amount - this.networkFee;
+        if (receive <= 0) {
+            showToast('Amount must be greater than the network fee.', 'error');
+            return;
+        }
+
+        // 2FA check
+        const is2fa = document.getElementById('withdraw2fa').checked;
+        if (is2fa) {
+            const code = document.getElementById('withdraw2faCode').value.trim();
+            if (!code || code.length !== 6) {
+                showToast('Please enter a valid 6-digit 2FA code.', 'error');
+                return;
+            }
+        }
+
+        // Process withdrawal
+        Game.balance -= amount;
+        Game.updateBalance();
+
+        const txHash = Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+        const now = new Date();
+        const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+            ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const withdrawal = {
+            date, amount: receive, address, txHash,
+            status: 'processing', fee: this.networkFee
+        };
+        this.withdrawals.unshift(withdrawal);
+        Ledger.add('withdraw', amount, `To: ${address.substring(0, 12)}...`);
+
+        this.renderHistory();
+        showToast(`Withdrawal of ${receive.toLocaleString()} bits is being processed.`, 'info');
+        AudioEngine.play('bet');
+
+        // Simulate confirmation after delay
+        setTimeout(() => {
+            withdrawal.status = 'confirmed';
+            this.renderHistory();
+            showToast(`Withdrawal of ${receive.toLocaleString()} bits confirmed!`, 'success');
+        }, 5000 + Math.random() * 10000);
+    },
+
+    renderHistory() {
+        const body = document.getElementById('withdrawHistoryBody');
+        if (!body) return;
+        if (this.withdrawals.length === 0) {
+            body.innerHTML = '<tr class="empty-row"><td colspan="4">No withdrawals yet</td></tr>';
+            return;
+        }
+        body.innerHTML = this.withdrawals.slice(0, 10).map(w => `
+            <tr>
+                <td>${w.date}</td>
+                <td style="color: var(--accent-red); font-weight: 600">−${w.amount.toLocaleString()} bits</td>
+                <td><span class="tx-hash">${w.address.substring(0, 16)}...</span></td>
+                <td><span class="tx-status ${w.status}">${w.status === 'confirmed' ? 'Confirmed' : 'Processing...'}</span></td>
+            </tr>
+        `).join('');
+    }
+};
+
+// ========================================
+// Bankroll Investor System
+// ========================================
+const BankrollSystem = {
+    totalBankroll: 2458291,
+    playerInvestment: 0,
+    playerProfit: 0,
+    investorCount: 48,
+    investmentLog: [],
+    performanceData: [],
+
+    // Simulated investors
+    investors: [],
+
+    init() {
+        // Generate fake investors
+        const names = SimPlayers.names.slice(0, 20);
+        this.investors = names.map(name => ({
+            name,
+            invested: Math.floor(10000 + Math.random() * 200000),
+            profit: Math.floor((Math.random() - 0.3) * 50000)
+        })).sort((a, b) => b.invested - a.invested);
+
+        // Generate performance history
+        let val = 2000000;
+        for (let i = 30; i >= 0; i--) {
+            val += (Math.random() - 0.45) * 50000;
+            this.performanceData.push(Math.floor(val));
+        }
+        this.totalBankroll = this.performanceData[this.performanceData.length - 1];
+
+        // Simulate bankroll changes every game
+        setInterval(() => this.simulateGameResult(), 8000);
+    },
+
+    simulateGameResult() {
+        // House edge means bankroll grows on average
+        const change = Math.floor((Math.random() - 0.45) * 10000);
+        this.totalBankroll += change;
+        this.performanceData.push(this.totalBankroll);
+        if (this.performanceData.length > 60) this.performanceData.shift();
+
+        // If player invested, their profit changes proportionally
+        if (this.playerInvestment > 0) {
+            const share = this.playerInvestment / (this.totalBankroll - change);
+            const playerChange = Math.floor(change * share);
+            this.playerProfit += playerChange;
+            this.playerInvestment += playerChange;
+        }
+    },
+
+    invest(amount) {
+        if (amount <= 0 || isNaN(amount)) {
+            showToast('Enter a valid amount to invest.', 'error');
+            return;
+        }
+        if (amount > Game.balance) {
+            showToast('Insufficient balance to invest.', 'error');
+            return;
+        }
+
+        Game.balance -= amount;
+        Game.updateBalance();
+        this.playerInvestment += amount;
+        this.totalBankroll += amount;
+
+        const now = new Date();
+        const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+            ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        this.investmentLog.unshift({
+            date, action: 'Invest', amount: amount,
+            bankrollAfter: this.totalBankroll
+        });
+        Ledger.add('invest', -amount, 'Invested in bankroll');
+
+        this.updateUI();
+        this.renderLog();
+        showToast(`Invested ${amount.toLocaleString()} bits into bankroll!`, 'success');
+        AudioEngine.play('bet');
+    },
+
+    divest(amount) {
+        if (amount <= 0 || isNaN(amount)) {
+            showToast('Enter a valid amount to divest.', 'error');
+            return;
+        }
+        if (amount > this.playerInvestment) {
+            showToast('Amount exceeds your investment.', 'error');
+            return;
+        }
+
+        this.playerInvestment -= amount;
+        this.totalBankroll -= amount;
+        Game.balance += amount;
+        Game.updateBalance();
+
+        const now = new Date();
+        const date = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+            ' ' + now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        this.investmentLog.unshift({
+            date, action: 'Divest', amount: amount,
+            bankrollAfter: this.totalBankroll
+        });
+        Ledger.add('invest', amount, 'Divested from bankroll');
+
+        this.updateUI();
+        this.renderLog();
+        showToast(`Divested ${amount.toLocaleString()} bits from bankroll.`, 'info');
+        AudioEngine.play('cashout');
+    },
+
+    updateUI() {
+        const totalEl = document.getElementById('bankrollTotal');
+        const yoursEl = document.getElementById('bankrollYours');
+        const shareEl = document.getElementById('bankrollShare');
+        const profitEl = document.getElementById('bankrollProfit');
+        const investorsEl = document.getElementById('bankrollInvestors');
+
+        if (totalEl) totalEl.textContent = this.totalBankroll.toLocaleString();
+        if (yoursEl) yoursEl.textContent = this.playerInvestment.toLocaleString();
+        if (shareEl) {
+            const share = this.totalBankroll > 0 ? (this.playerInvestment / this.totalBankroll * 100) : 0;
+            shareEl.textContent = share.toFixed(4) + '%';
+        }
+        if (profitEl) {
+            profitEl.textContent = (this.playerProfit >= 0 ? '+' : '') + this.playerProfit.toLocaleString();
+            profitEl.className = 'bstat-value ' + (this.playerProfit >= 0 ? 'green' : 'red');
+        }
+        if (investorsEl) investorsEl.textContent = this.investorCount + (this.playerInvestment > 0 ? 1 : 0);
+
+        // Update projections
+        const investAmt = parseFloat(document.getElementById('investAmount')?.value) || 0;
+        const projEl = document.getElementById('investProjection');
+        if (projEl) {
+            const proj = ((this.playerInvestment + investAmt) / (this.totalBankroll + investAmt) * 100);
+            projEl.textContent = proj.toFixed(4) + '%';
+        }
+
+        const divestValEl = document.getElementById('divestValue');
+        if (divestValEl) {
+            divestValEl.textContent = this.playerInvestment.toLocaleString() + ' bits';
+        }
+
+        // Withdraw modal
+        const wAvail = document.getElementById('withdrawAvailable');
+        const wInvest = document.getElementById('withdrawInvested');
+        if (wAvail) wAvail.textContent = Game.balance.toFixed(2);
+        if (wInvest) wInvest.textContent = this.playerInvestment.toLocaleString();
+    },
+
+    renderInvestors() {
+        const body = document.getElementById('investorTableBody');
+        if (!body) return;
+
+        // Include player if invested
+        let list = [...this.investors];
+        if (this.playerInvestment > 0) {
+            list.push({
+                name: 'Player_1337',
+                invested: this.playerInvestment,
+                profit: this.playerProfit,
+                isPlayer: true
+            });
+        }
+        list.sort((a, b) => b.invested - a.invested);
+
+        body.innerHTML = list.slice(0, 15).map((inv, i) => {
+            const share = (inv.invested / this.totalBankroll * 100).toFixed(2);
+            const profitColor = inv.profit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+            const nameColor = inv.isPlayer ? 'var(--accent-gold)' : 'var(--accent-blue)';
+            return `<tr>
+                <td>${i + 1}</td>
+                <td style="color: ${nameColor}; font-weight: 600">${inv.isPlayer ? '★ ' : ''}${inv.name}</td>
+                <td>${inv.invested.toLocaleString()} bits</td>
+                <td>${share}%</td>
+                <td style="color: ${profitColor}; font-weight: 600">${inv.profit >= 0 ? '+' : ''}${inv.profit.toLocaleString()} bits</td>
+            </tr>`;
+        }).join('');
+    },
+
+    renderLog() {
+        const body = document.getElementById('investLogBody');
+        if (!body) return;
+        if (this.investmentLog.length === 0) {
+            body.innerHTML = '<tr class="empty-row"><td colspan="4">No investment history</td></tr>';
+            return;
+        }
+        body.innerHTML = this.investmentLog.slice(0, 10).map(log => {
+            const color = log.action === 'Invest' ? 'var(--accent-green)' : 'var(--accent-orange)';
+            return `<tr>
+                <td>${log.date}</td>
+                <td style="color: ${color}; font-weight: 600">${log.action}</td>
+                <td>${log.amount.toLocaleString()} bits</td>
+                <td>${log.bankrollAfter.toLocaleString()} bits</td>
+            </tr>`;
+        }).join('');
+    },
+
+    renderChart() {
+        const canvas = document.getElementById('bankrollChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * dpr;
+        canvas.height = 200 * dpr;
+        ctx.scale(dpr, dpr);
+        const w = rect.width;
+        const h = 200;
+
+        ctx.clearRect(0, 0, w, h);
+
+        const data = this.performanceData;
+        if (data.length < 2) return;
+
+        const padding = { top: 20, right: 20, bottom: 30, left: 70 };
+        const gw = w - padding.left - padding.right;
+        const gh = h - padding.top - padding.bottom;
+
+        const min = Math.min(...data) * 0.98;
+        const max = Math.max(...data) * 1.02;
+        const scaleX = gw / (data.length - 1);
+        const scaleY = gh / (max - min);
+
+        // Grid
+        ctx.strokeStyle = 'rgba(42, 42, 74, 0.3)';
+        ctx.lineWidth = 0.5;
+        ctx.setLineDash([3, 3]);
+        for (let i = 0; i < 5; i++) {
+            const y = padding.top + (gh / 4) * i;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(w - padding.right, y);
+            ctx.stroke();
+
+            const val = max - (max - min) * (i / 4);
+            ctx.fillStyle = 'rgba(136, 136, 170, 0.5)';
+            ctx.font = '10px Source Sans Pro, sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(Math.floor(val).toLocaleString(), padding.left - 8, y + 4);
+        }
+        ctx.setLineDash([]);
+
+        // Line
+        const isUp = data[data.length - 1] >= data[0];
+        const lineColor = isUp ? '#00e701' : '#ed4e4e';
+
+        // Fill
+        ctx.beginPath();
+        ctx.moveTo(padding.left, padding.top + gh);
+        for (let i = 0; i < data.length; i++) {
+            const x = padding.left + i * scaleX;
+            const y = padding.top + gh - (data[i] - min) * scaleY;
+            ctx.lineTo(x, y);
+        }
+        ctx.lineTo(padding.left + (data.length - 1) * scaleX, padding.top + gh);
+        ctx.closePath();
+        ctx.fillStyle = isUp ? 'rgba(0, 231, 1, 0.06)' : 'rgba(237, 78, 78, 0.06)';
+        ctx.fill();
+
+        // Stroke
+        ctx.beginPath();
+        for (let i = 0; i < data.length; i++) {
+            const x = padding.left + i * scaleX;
+            const y = padding.top + gh - (data[i] - min) * scaleY;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+};
+
+// ========================================
+// Account System
+// ========================================
+const AccountSystem = {
+    updateStats() {
+        const bal = document.getElementById('acctBalance');
+        const wag = document.getElementById('acctWagered');
+        const prof = document.getElementById('acctProfit');
+        const games = document.getElementById('acctGames');
+        const dep = document.getElementById('acctDeposited');
+        const wit = document.getElementById('acctWithdrawn');
+
+        if (bal) bal.textContent = Game.balance.toFixed(0);
+        if (wag) wag.textContent = Ledger.totalWagered.toLocaleString();
+        if (prof) {
+            prof.textContent = (Ledger.totalProfit >= 0 ? '+' : '') + Ledger.totalProfit.toLocaleString();
+            prof.style.color = Ledger.totalProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+        }
+        if (games) games.textContent = Ledger.gamesPlayed.toLocaleString();
+        if (dep) dep.textContent = Ledger.totalDeposited.toLocaleString();
+        if (wit) wit.textContent = Ledger.totalWithdrawn.toLocaleString();
+    },
+
+    renderTransactions(filter = 'all') {
+        const body = document.getElementById('accountTxBody');
+        if (!body) return;
+        const txs = Ledger.getByType(filter);
+        if (txs.length === 0) {
+            body.innerHTML = '<tr class="empty-row"><td colspan="4">No transactions yet</td></tr>';
+            return;
+        }
+
+        body.innerHTML = txs.slice(0, 30).map(tx => {
+            let typeLabel, typeColor;
+            switch (tx.type) {
+                case 'deposit': typeLabel = 'Deposit'; typeColor = 'var(--accent-green)'; break;
+                case 'withdraw': typeLabel = 'Withdrawal'; typeColor = 'var(--accent-red)'; break;
+                case 'invest': typeLabel = 'Investment'; typeColor = 'var(--accent-gold)'; break;
+                case 'bet': typeLabel = 'Bet'; typeColor = tx.amount >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'; break;
+                case 'cashout': typeLabel = 'Cashout'; typeColor = 'var(--accent-green)'; break;
+                default: typeLabel = tx.type; typeColor = 'var(--text-secondary)';
+            }
+            const amtStr = (tx.amount >= 0 ? '+' : '') + tx.amount.toLocaleString();
+            return `<tr>
+                <td>${tx.date}</td>
+                <td style="color: ${typeColor}; font-weight: 600">${typeLabel}</td>
+                <td style="color: ${typeColor}; font-weight: 600">${amtStr} bits</td>
+                <td style="font-size: 11px">${tx.details}</td>
+            </tr>`;
+        }).join('');
+    }
+};
+
+// ========================================
 // Global Functions (called from HTML)
 // ========================================
 function placeBet() { Game.placeBet(); }
@@ -1082,6 +1671,7 @@ function toggleAutoBet() { Game.toggleAutoBet(); }
 function showFairness() { Game.showFairness(); }
 function closeFairness() { document.getElementById('fairnessModal').classList.remove('active'); }
 function closeLeaderboard() { document.getElementById('leaderboardModal').classList.remove('active'); }
+function closeModal(id) { document.getElementById(id).classList.remove('active'); }
 
 function adjustBet(factor) {
     const input = document.getElementById('betAmount');
@@ -1116,6 +1706,156 @@ async function verifyGame() {
     resultEl.textContent = `Crash Point: ${result.toFixed(2)}×`;
 }
 
+// --- Deposit functions ---
+function openDeposit(e) {
+    if (e) e.preventDefault();
+    closeAllDropdowns();
+    document.getElementById('depositModal').classList.add('active');
+    DepositSystem.renderQR();
+    DepositSystem.renderHistory();
+}
+
+function switchDepositTab(tab, btn) {
+    document.querySelectorAll('.deposit-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.deposit-tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    if (tab === 'btc') {
+        document.getElementById('depositBtcTab').classList.add('active');
+        DepositSystem.renderQR();
+    } else {
+        document.getElementById('depositLightningTab').classList.add('active');
+    }
+}
+
+function copyAddress() {
+    navigator.clipboard.writeText(DepositSystem.address).then(() => {
+        showToast('Address copied to clipboard!', 'success');
+    }).catch(() => {
+        showToast('Failed to copy. Please select and copy manually.', 'error');
+    });
+}
+
+function simulateDeposit(amount) {
+    // Simulate a deposit arriving after a short delay
+    showToast(`Processing deposit of ${amount.toLocaleString()} bits...`, 'info');
+    setTimeout(() => {
+        DepositSystem.processDeposit(amount);
+        BankrollSystem.updateUI();
+    }, 1500 + Math.random() * 2000);
+}
+
+function generateLightningInvoice() {
+    const amount = parseInt(document.getElementById('lightningAmount').value);
+    if (isNaN(amount) || amount < 100) {
+        showToast('Minimum Lightning deposit is 100 bits.', 'error');
+        return;
+    }
+    // Generate fake Lightning invoice
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let invoice = 'lnbc' + amount + 'n1p';
+    for (let i = 0; i < 50; i++) invoice += chars[Math.floor(Math.random() * chars.length)];
+    document.getElementById('lnInvoiceText').textContent = invoice;
+    document.getElementById('lightningInvoice').style.display = 'block';
+
+    // Simulate payment after delay
+    setTimeout(() => {
+        DepositSystem.processDeposit(amount);
+        document.getElementById('lightningInvoice').style.display = 'none';
+        BankrollSystem.updateUI();
+    }, 4000 + Math.random() * 3000);
+}
+
+function copyLightning() {
+    const text = document.getElementById('lnInvoiceText').textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('Lightning invoice copied!', 'success');
+    });
+}
+
+// --- Withdrawal functions ---
+function openWithdraw(e) {
+    if (e) e.preventDefault();
+    closeAllDropdowns();
+    document.getElementById('withdrawModal').classList.add('active');
+    BankrollSystem.updateUI();
+    WithdrawSystem.updateFeeDisplay();
+    WithdrawSystem.renderHistory();
+}
+
+function setWithdrawHalf() {
+    document.getElementById('withdrawAmount').value = Math.floor(Game.balance / 2);
+    WithdrawSystem.updateFeeDisplay();
+}
+function setWithdrawAll() {
+    document.getElementById('withdrawAmount').value = Math.floor(Game.balance);
+    WithdrawSystem.updateFeeDisplay();
+}
+
+function processWithdraw() {
+    WithdrawSystem.process();
+    BankrollSystem.updateUI();
+}
+
+// --- Bankroll functions ---
+function openBankroll(e) {
+    if (e) e.preventDefault();
+    closeAllDropdowns();
+    document.getElementById('bankrollModal').classList.add('active');
+    BankrollSystem.updateUI();
+    BankrollSystem.renderInvestors();
+    BankrollSystem.renderLog();
+    setTimeout(() => BankrollSystem.renderChart(), 50);
+}
+
+function investInBankroll() {
+    const amount = parseInt(document.getElementById('investAmount').value);
+    BankrollSystem.invest(amount);
+}
+
+function divestFromBankroll() {
+    const amount = parseInt(document.getElementById('divestAmount').value);
+    BankrollSystem.divest(amount);
+}
+
+function setDivest(pct) {
+    document.getElementById('divestAmount').value = Math.floor(BankrollSystem.playerInvestment * pct);
+}
+
+// --- Account functions ---
+function openAccount(e) {
+    if (e) e.preventDefault();
+    closeAllDropdowns();
+    document.getElementById('accountModal').classList.add('active');
+    AccountSystem.updateStats();
+    AccountSystem.renderTransactions('all');
+}
+
+function filterTx(filter, btn) {
+    document.querySelectorAll('.tx-filter').forEach(f => f.classList.remove('active'));
+    btn.classList.add('active');
+    AccountSystem.renderTransactions(filter);
+}
+
+function toggle2FA() {
+    showToast('2FA setup: Scan the QR code with your authenticator app (simulated).', 'info');
+}
+
+// --- User dropdown ---
+function toggleAccountDropdown() {
+    document.getElementById('userDropdown').classList.toggle('active');
+}
+function closeAllDropdowns() {
+    document.getElementById('userDropdown')?.classList.remove('active');
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    const menu = document.querySelector('.user-menu');
+    if (menu && !menu.contains(e.target)) {
+        document.getElementById('userDropdown')?.classList.remove('active');
+    }
+});
+
 // Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', (e) => {
@@ -1123,9 +1863,25 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     });
 });
 
+// Wire up withdrawal amount input
+document.addEventListener('DOMContentLoaded', () => {
+    const wAmt = document.getElementById('withdrawAmount');
+    if (wAmt) wAmt.addEventListener('input', () => WithdrawSystem.updateFeeDisplay());
+
+    const w2fa = document.getElementById('withdraw2fa');
+    if (w2fa) w2fa.addEventListener('change', () => {
+        document.getElementById('withdraw2faInput').style.display = w2fa.checked ? 'block' : 'none';
+    });
+
+    const investAmt = document.getElementById('investAmount');
+    if (investAmt) investAmt.addEventListener('input', () => BankrollSystem.updateUI());
+});
+
 // ========================================
 // Initialize
 // ========================================
 document.addEventListener('DOMContentLoaded', () => {
+    DepositSystem.init();
+    BankrollSystem.init();
     Game.init();
 });
