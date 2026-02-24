@@ -1,0 +1,21 @@
+Prescriber Name,DEA Number,NPI,Address,City,State,ZIP,Specialty
+Dr. James Anderson,BA1234563,1234567893,100 Medical Plaza Suite 200,Springfield,IL,62701,Pain Management
+Dr. Mary Johnson,BJ2345674,2345678904,200 Health Center Dr,Springfield,IL,62702,Primary Care
+Dr. Robert Williams,BW3456785,3456789015,300 Physician Blvd,Springfield,IL,62703,Psychiatry
+Dr. Patricia Brown,BB4567896,4567890126,400 Clinical Way,Springfield,IL,62704,Neurology
+Dr. Michael Davis,BD5678907,5678901237,500 Wellness Ave,Springfield,IL,62705,Orthopedics
+Dr. Linda Garcia,BG6789018,6789012348,600 Care Street,Springfield,IL,62706,Cardiology
+Dr. William Miller,BM7890129,7890123459,700 Doctor Lane,Springfield,IL,62707,Internal Medicine
+Dr. Barbara Wilson,BW8901230,8901234560,800 Provider Rd,Springfield,IL,62708,Endocrinology
+Dr. David Moore,BM9012341,9012345671,900 Specialty Ct,Springfield,IL,62709,Addiction Medicine
+Dr. Susan Taylor,BT0123452,1023456782,1000 Clinic Blvd,Springfield,IL,62710,Pulmonology
+Dr. Richard Jackson,BJ1234567,1134567893,110 Oak Street,Franklin,TN,37067,Pain Management
+Dr. Jessica Martin,BM2345678,1245678904,220 Maple Ave,Franklin,TN,37067,Psychiatry
+Dr. Thomas Lee,BL3456789,1356789015,330 Cedar Dr,Franklin,TN,37067,Primary Care
+Dr. Karen Thompson,BT4567890,1467890126,440 Pine Rd,Franklin,TN,37067,Oncology
+Dr. Christopher White,BW5678901,1578901237,550 Elm Blvd,Franklin,TN,37067,Palliative Care
+Dr. Amanda Harris,BH6789012,1689012348,660 Birch Lane,Greenville,SC,29601,Primary Care
+Dr. Matthew Sanchez,BS7890123,1790123459,770 Walnut St,Greenville,SC,29601,Neurology
+Dr. Ashley Clark,BC8901234,1901234560,880 Hickory Way,Greenville,SC,29601,Rheumatology
+Dr. Joshua Robinson,BR9012345,2012345671,990 Spruce Ct,Greenville,SC,29601,Internal Medicine
+Dr. Stephanie Walker,BW0123456,2123456782,1100 Poplar Ave,Greenville,SC,29601,Psychiatry

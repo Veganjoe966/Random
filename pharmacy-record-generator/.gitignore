@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Streamlit
+.streamlit/
+
+# Runtime artifacts
+logs/*.log
+cache/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated output (keep sample, exclude real outputs)
+sample_output/*.xlsx
+sample_output/*.csv
+!sample_output/sample_dea_prescribers.csv
