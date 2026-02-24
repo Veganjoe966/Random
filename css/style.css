@@ -155,6 +155,7 @@ html, body {
 }
 
 .user-menu {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -972,9 +973,6 @@ html, body {
 }
 
 /* User Dropdown */
-.user-menu {
-    position: relative;
-}
 .user-dropdown {
     display: none;
     position: absolute;

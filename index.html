@@ -17,14 +17,14 @@
             <div class="nav-links">
                 <a href="#" class="nav-link active">Game</a>
                 <a href="#" class="nav-link">Leaderboard</a>
-                <a href="#" class="nav-link" onclick="event.preventDefault();openBankroll()">Bankroll</a>
+                <a href="#" class="nav-link">Bankroll</a>
                 <a href="#" class="nav-link">FAQ</a>
             </div>
         </div>
         <div class="navbar-right">
             <div class="balance-display">
                 <span class="balance-icon">₿</span>
-                <span class="balance-amount" id="balanceAmount">1,000.00</span>
+                <span class="balance-amount" id="balanceAmount">100000.00</span>
                 <span class="balance-unit">bits</span>
             </div>
             <button class="btn-deposit" onclick="openDeposit()">Deposit</button>
@@ -611,14 +611,14 @@
                             <strong>Change Password</strong>
                             <p class="security-desc">Update your account password</p>
                         </div>
-                        <button class="btn-secondary">Change</button>
+                        <button class="btn-secondary" onclick="changePassword()">Change</button>
                     </div>
                     <div class="security-row">
                         <div>
                             <strong>Session History</strong>
                             <p class="security-desc">View recent login activity</p>
                         </div>
-                        <button class="btn-secondary">View</button>
+                        <button class="btn-secondary" onclick="viewSessionHistory()">View</button>
                     </div>
                 </div>
             </div>

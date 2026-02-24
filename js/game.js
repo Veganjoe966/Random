@@ -464,6 +464,7 @@ const Game = {
     // Timing
     lastFrameTime: 0,
     tickCounter: 0,
+    _lastTickMult: 0,
 
     async init() {
         AudioEngine.init();
@@ -504,14 +505,20 @@ const Game = {
         document.querySelectorAll('.nav-link').forEach(link => {
             link.addEventListener('click', (e) => {
                 e.preventDefault();
-                const text = link.textContent;
-                if (text === 'Leaderboard') {
+                const text = link.textContent.trim();
+                if (text === 'Game') {
+                    // Close any open modals and set Game as active
+                    document.querySelectorAll('.modal-overlay').forEach(m => m.classList.remove('active'));
+                } else if (text === 'Leaderboard') {
                     this.showLeaderboard();
                 } else if (text === 'Bankroll') {
                     openBankroll();
                 } else if (text === 'FAQ') {
                     this.showFairness();
                 }
+                // Toggle active class
+                document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+                link.classList.add('active');
             });
         });
     },
@@ -575,9 +582,10 @@ const Game = {
         this.cashoutMultiplier = 0;
         this.betAmount = 0;
 
-        // Generate crash point
-        this.crashPoint = this.generateCrashPoint();
-        this.gameHash = await ProvablyFair.generateHash();
+        // Generate crash point using provably fair system
+        const result = await ProvablyFair.getNextCrash();
+        this.crashPoint = result.crashPoint;
+        this.gameHash = result.hash;
         this.gameId++;
 
         document.getElementById('gameId').textContent = this.gameId.toLocaleString();
@@ -691,7 +699,7 @@ const Game = {
         // Update bet button
         this.updateBetButton();
 
-        requestAnimationFrame(() => this.gameLoop());
+        GraphRenderer.animationId = requestAnimationFrame(() => this.gameLoop());
     },
 
     simulatePlayerCashouts() {
@@ -1304,7 +1312,7 @@ const WithdrawSystem = {
             status: 'processing', fee: this.networkFee
         };
         this.withdrawals.unshift(withdrawal);
-        Ledger.add('withdraw', amount, `To: ${address.substring(0, 12)}...`);
+        Ledger.add('withdraw', receive, `To: ${address.substring(0, 12)}... (fee: ${this.networkFee})`);
 
         this.renderHistory();
         showToast(`Withdrawal of ${receive.toLocaleString()} bits is being processed.`, 'info');
@@ -1840,6 +1848,14 @@ function toggle2FA() {
     showToast('2FA setup: Scan the QR code with your authenticator app (simulated).', 'info');
 }
 
+function changePassword() {
+    showToast('Password change request sent. Check your email to confirm (simulated).', 'info');
+}
+
+function viewSessionHistory() {
+    showToast('Session history: Last login from 192.168.1.x, 2 hours ago (simulated).', 'info');
+}
+
 // --- User dropdown ---
 function toggleAccountDropdown() {
     document.getElementById('userDropdown').classList.toggle('active');
@@ -1863,8 +1879,11 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
     });
 });
 
-// Wire up withdrawal amount input
+// ========================================
+// Initialize
+// ========================================
 document.addEventListener('DOMContentLoaded', () => {
+    // Wire up withdrawal amount input
     const wAmt = document.getElementById('withdrawAmount');
     if (wAmt) wAmt.addEventListener('input', () => WithdrawSystem.updateFeeDisplay());
 
@@ -1875,12 +1894,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const investAmt = document.getElementById('investAmount');
     if (investAmt) investAmt.addEventListener('input', () => BankrollSystem.updateUI());
-});
 
-// ========================================
-// Initialize
-// ========================================
-document.addEventListener('DOMContentLoaded', () => {
+    // Chat language tabs
+    document.querySelectorAll('.chat-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.chat-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            // Russian tab shows a placeholder message
+            if (tab.textContent.trim() !== 'English') {
+                ChatSystem.addMessage('System', `Switched to ${tab.textContent.trim()} chat.`, true);
+            }
+        });
+    });
+
+    // Init systems
     DepositSystem.init();
     BankrollSystem.init();
     Game.init();
