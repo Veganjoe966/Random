@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bustabit – The Original Crash Game</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-left">
+            <div class="logo">
+                <span class="logo-bust">BUST</span><span class="logo-a">A</span><span class="logo-bit">BIT</span>
+            </div>
+            <div class="nav-links">
+                <a href="#" class="nav-link active">Game</a>
+                <a href="#" class="nav-link">Leaderboard</a>
+                <a href="#" class="nav-link">Bankroll</a>
+                <a href="#" class="nav-link">FAQ</a>
+            </div>
+        </div>
+        <div class="navbar-right">
+            <div class="balance-display">
+                <span class="balance-icon">₿</span>
+                <span class="balance-amount" id="balanceAmount">1,000.00</span>
+                <span class="balance-unit">bits</span>
+            </div>
+            <button class="btn-deposit">Deposit</button>
+            <div class="user-menu">
+                <span class="username">Player_1337</span>
+                <span class="dropdown-arrow">▾</span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Game Container -->
+    <div class="game-container">
+        <!-- Left Panel: Betting Controls -->
+        <div class="left-panel">
+            <div class="betting-panel">
+                <div class="tab-bar">
+                    <button class="tab active" data-tab="manual">Manual</button>
+                    <button class="tab" data-tab="auto">Auto</button>
+                </div>
+
+                <!-- Manual Bet Tab -->
+                <div class="tab-content active" id="manualTab">
+                    <div class="input-group">
+                        <label>Bet Amount (bits)</label>
+                        <div class="input-with-buttons">
+                            <input type="number" id="betAmount" value="100" min="1" step="1">
+                            <button class="input-btn" onclick="adjustBet(0.5)">½</button>
+                            <button class="input-btn" onclick="adjustBet(2)">2×</button>
+                            <button class="input-btn" onclick="setMaxBet()">Max</button>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Auto Cash Out</label>
+                        <div class="input-with-toggle">
+                            <input type="number" id="autoCashout" value="2.00" min="1.01" step="0.01">
+                            <span class="multiplier-symbol">×</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="autoCashoutEnabled" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn-bet" id="betButton" onclick="placeBet()">
+                        <span id="betButtonText">Place Bet</span>
+                        <span id="betButtonSub" class="btn-sub"></span>
+                    </button>
+                    <div class="profit-display">
+                        <span class="profit-label">Profit on cashout:</span>
+                        <span class="profit-value" id="profitDisplay">+100.00 bits</span>
+                    </div>
+                </div>
+
+                <!-- Auto Bet Tab -->
+                <div class="tab-content" id="autoTab">
+                    <div class="input-group">
+                        <label>Base Bet (bits)</label>
+                        <input type="number" id="autoBaseBet" value="10" min="1">
+                    </div>
+                    <div class="input-group">
+                        <label>Auto Cash Out</label>
+                        <div class="input-with-toggle">
+                            <input type="number" id="autoAutoCashout" value="2.00" min="1.01" step="0.01">
+                            <span class="multiplier-symbol">×</span>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>On Win</label>
+                        <div class="radio-group">
+                            <label class="radio-label"><input type="radio" name="onWin" value="reset" checked> Reset</label>
+                            <label class="radio-label"><input type="radio" name="onWin" value="increase"> Increase by
+                                <input type="number" id="onWinIncrease" value="50" min="0" class="inline-input">%
+                            </label>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>On Loss</label>
+                        <div class="radio-group">
+                            <label class="radio-label"><input type="radio" name="onLoss" value="reset" checked> Reset</label>
+                            <label class="radio-label"><input type="radio" name="onLoss" value="increase"> Increase by
+                                <input type="number" id="onLossIncrease" value="100" min="0" class="inline-input">%
+                            </label>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label>Stop on Profit (bits)</label>
+                        <input type="number" id="stopProfit" value="1000" min="0">
+                    </div>
+                    <div class="input-group">
+                        <label>Stop on Loss (bits)</label>
+                        <input type="number" id="stopLoss" value="500" min="0">
+                    </div>
+                    <button class="btn-bet btn-auto" id="autoBetButton" onclick="toggleAutoBet()">
+                        Start Autobet
+                    </button>
+                </div>
+            </div>
+
+            <!-- Players List -->
+            <div class="players-panel">
+                <div class="panel-header">
+                    <span class="panel-title">Players</span>
+                    <span class="player-count" id="playerCount">42 playing</span>
+                </div>
+                <div class="players-table-header">
+                    <span>User</span>
+                    <span>Bet</span>
+                    <span>Profit</span>
+                </div>
+                <div class="players-list" id="playersList">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Center Panel: Game Graph -->
+        <div class="center-panel">
+            <!-- Game History Bar -->
+            <div class="history-bar" id="historyBar">
+                <!-- Populated by JS -->
+            </div>
+
+            <!-- Game Canvas -->
+            <div class="game-graph-container">
+                <canvas id="gameCanvas"></canvas>
+                <div class="game-overlay" id="gameOverlay">
+                    <div class="game-status" id="gameStatus">
+                        <div class="multiplier" id="currentMultiplier">1.00×</div>
+                        <div class="status-text" id="statusText"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Game Info Bar -->
+            <div class="game-info-bar">
+                <div class="info-item">
+                    <span class="info-label">Game #</span>
+                    <span class="info-value" id="gameId">4,582,391</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">Hash</span>
+                    <span class="info-value hash-value" id="gameHash">a3f2e8...</span>
+                </div>
+                <div class="info-item verify-link">
+                    <a href="#" onclick="showFairness()">Provably Fair</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Panel: Chat -->
+        <div class="right-panel">
+            <div class="chat-panel">
+                <div class="panel-header">
+                    <span class="panel-title">Chat</span>
+                    <div class="chat-tabs">
+                        <button class="chat-tab active">English</button>
+                        <button class="chat-tab">Русский</button>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chatMessages">
+                    <!-- Populated by JS -->
+                </div>
+                <div class="chat-input-container">
+                    <input type="text" id="chatInput" placeholder="Type a message..." onkeydown="handleChatKey(event)">
+                    <button class="chat-send-btn" onclick="sendChat()">Send</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Provably Fair Modal -->
+    <div class="modal-overlay" id="fairnessModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Provably Fair</h2>
+                <button class="modal-close" onclick="closeFairness()">×</button>
+            </div>
+            <div class="modal-body">
+                <p>Each game's crash point is predetermined using a chain of SHA-256 hashes. You can verify any game's result independently.</p>
+                <div class="input-group">
+                    <label>Game Hash</label>
+                    <input type="text" id="verifyHash" placeholder="Enter game hash">
+                </div>
+                <div class="input-group">
+                    <label>Game Salt</label>
+                    <input type="text" id="verifySalt" value="0000000000000000004d6ec16dafe9d8370958664c1dc422f452892264c59526">
+                </div>
+                <button class="btn-bet" onclick="verifyGame()" style="margin-top:10px;">Verify</button>
+                <div id="verifyResult" class="verify-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard Modal -->
+    <div class="modal-overlay" id="leaderboardModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h2>Leaderboard</h2>
+                <button class="modal-close" onclick="closeLeaderboard()">×</button>
+            </div>
+            <div class="modal-body">
+                <table class="leaderboard-table">
+                    <thead>
+                        <tr><th>#</th><th>Player</th><th>Wagered</th><th>Profit</th></tr>
+                    </thead>
+                    <tbody id="leaderboardBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/game.js"></script>
+</body>
+</html>
