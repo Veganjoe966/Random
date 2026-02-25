@@ -502,7 +502,6 @@ class RecordGenerator:
                     "insurance_plan":     insurance,
                     "controlled_schedule": SCHEDULE_LABELS[schedule],
                     "diagnosis":          random.choice(drug["diagnoses"]),
-                    "data_status":        "SIMULATED — TRAINING ONLY",
                     "_sort_date":         fill_date,
                 }
                 records.append(rec)
@@ -573,7 +572,6 @@ class RecordGenerator:
                 "insurance_plan":     insurance,
                 "controlled_schedule": SCHEDULE_LABELS["Non-Control"],
                 "diagnosis":          random.choice(drug["diagnoses"]),
-                "data_status":        "SIMULATED — TRAINING ONLY",
                 "_sort_date":         fill_date,
             }
             records.append(rec)
@@ -703,5 +701,4 @@ class RecordGenerator:
             "payment_type",
             "insurance_plan",
             "diagnosis",
-            "data_status",
         ]
