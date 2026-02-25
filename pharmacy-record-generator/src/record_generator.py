@@ -48,7 +48,7 @@ _PINNED_CONTROLLED = [
     ("CIV", "Alprazolam"),
     ("CV",  "Promethazine/Codeine"),
 ]
-_PINNED_MIN_RECORDS = 3   # minimum fills generated per pinned drug per report
+_PINNED_SCHEDULE_FRACTION = 0.45  # fraction of each schedule's total that goes to the pinned drug
 
 # ---------------------------------------------------------------------------
 # Patient Name / Address Data
@@ -463,15 +463,22 @@ class RecordGenerator:
             for sched, drug_list in CONTROLLED_DRUGS.items()
         }
 
-        # Reduce each schedule's random-fill count by the pinned minimums so
-        # the overall total stays the same.
+        # Each pinned drug receives _PINNED_SCHEDULE_FRACTION of its schedule's
+        # total slots; those slots are deducted from the random-fill pool so the
+        # overall count stays the same.
+        sched_totals = dict(schedule_counts)
+        pinned_counts: Dict[Tuple[str, str], int] = {
+            (p_sched, p_name): max(3, int(sched_totals.get(p_sched, 0) * _PINNED_SCHEDULE_FRACTION))
+            for p_sched, p_name in _PINNED_CONTROLLED
+        }
+
         pinned_deductions: Dict[str, int] = defaultdict(int)
-        for p_sched, p_name in _PINNED_CONTROLLED:
-            pinned_deductions[p_sched] += _PINNED_MIN_RECORDS
+        for (p_sched, _), cnt in pinned_counts.items():
+            pinned_deductions[p_sched] += cnt
 
         adjusted_counts = {
             sched: max(0, cnt - pinned_deductions.get(sched, 0))
-            for sched, cnt in dict(schedule_counts)
+            for sched, cnt in sched_totals.items()
         }
 
         # --- Guaranteed fills for pinned drugs ---
@@ -480,7 +487,7 @@ class RecordGenerator:
             if p_drug is None:
                 logger.warning("Pinned drug '%s' (%s) not found in database — skipping.", p_name, p_sched)
                 continue
-            for _ in range(_PINNED_MIN_RECORDS):
+            for _ in range(pinned_counts[(p_sched, p_name)]):
                 fill_date = random.choice(date_pool)
                 patient, pat_id = self._get_or_create_patient(patients, p_drug, fill_date)
                 fill_history[pat_id][p_drug["name"]].append(fill_date)

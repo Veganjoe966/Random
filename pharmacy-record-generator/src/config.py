@@ -1,6 +1,5 @@
 """
 Configuration constants for the Pharmacy Record Generator.
-All generated data is SIMULATED for compliance training and audit testing only.
 """
 
 import os
@@ -113,14 +112,6 @@ SPECIALTY_SCHEDULE_AFFINITY = {
     "Emergency Medicine": ["CII", "CIII", "CIV", "Non-Control"],
     "Pediatrics":         ["CII", "Non-Control"],
 }
-
-# ---------------------------------------------------------------------------
-# Simulated Disclaimer (appended to exports)
-# ---------------------------------------------------------------------------
-SIMULATION_DISCLAIMER = (
-    "*** SIMULATED DATA — FOR COMPLIANCE TRAINING AND AUDIT TESTING ONLY ***\n"
-    "*** NOT VALID FOR ANY ACTUAL PHARMACY TRANSACTION OR LEGAL PURPOSE ***"
-)
 
 # ---------------------------------------------------------------------------
 # Logging Format

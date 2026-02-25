@@ -3,8 +3,6 @@ Drug database for the Pharmacy Record Generator.
 
 Contains clinically accurate controlled and non-controlled drug definitions
 with realistic dosing, quantities, scheduling, and specialty affinities.
-
-SIMULATED DATA — For compliance training and audit testing only.
 """
 
 from typing import Any, Dict, List

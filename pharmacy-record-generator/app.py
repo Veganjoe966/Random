@@ -32,7 +32,6 @@ from src.config import (
     LOG_DATE_FORMAT,
     MAX_RECORD_COUNT,
     MIN_RECORD_COUNT,
-    SIMULATION_DISCLAIMER,
 )
 from src.dea_parser import DEAParser, generate_prescriber_pool
 from src.export_module import ExportModule
@@ -75,17 +74,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Disclaimer banner */
-    .disclaimer-banner {
-        background-color: #ff4b4b;
-        color: white;
-        font-weight: bold;
-        text-align: center;
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-size: 15px;
-        margin-bottom: 16px;
-    }
     /* Section card */
     .section-card {
         background-color: #f0f4ff;
@@ -107,20 +95,6 @@ st.markdown(
     }
     </style>
     """,
-    unsafe_allow_html=True,
-)
-
-
-# ---------------------------------------------------------------------------
-# Disclaimer Banner
-# ---------------------------------------------------------------------------
-
-st.markdown(
-    '<div class="disclaimer-banner">'
-    "⚠️  SIMULATED DATA — FOR COMPLIANCE TRAINING AND AUDIT TESTING ONLY  ⚠️<br>"
-    "All generated records are entirely synthetic and have no legal, regulatory, "
-    "or pharmaceutical validity."
-    "</div>",
     unsafe_allow_html=True,
 )
 
@@ -661,23 +635,6 @@ with tab_results:
             val_df = pd.DataFrame(st.session_state["validation_issues"])
             st.dataframe(val_df, use_container_width=True, hide_index=True)
 
-        # Disclaimer footer
-        st.divider()
-        st.markdown(
-            f"""
-            <div style="
-                background: #fff3cd;
-                border: 2px solid #ffc107;
-                border-radius: 6px;
-                padding: 12px 16px;
-                font-size: 13px;
-            ">
-            <strong>⚠️ Data Use Disclaimer:</strong><br>
-            {SIMULATION_DISCLAIMER.replace(chr(10), '<br>')}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
 
 # ---------------------------------------------------------------------------
