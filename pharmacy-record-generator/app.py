@@ -291,8 +291,7 @@ with tab_upload:
 
         with st.spinner("Parsing prescriber file..."):
             parser = DEAParser()
-            file_bytes = uploaded_file.read()
-            success = parser.parse(file_bytes, uploaded_file.name)
+            success = parser.parse(uploaded_file, uploaded_file.name)
 
         if not success:
             st.error("Failed to parse file. Errors:")

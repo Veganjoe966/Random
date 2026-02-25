@@ -10,8 +10,12 @@ build/
 venv/
 env/
 
-# Streamlit
-.streamlit/
+# Streamlit — ignore secrets/credentials but track config.toml
+# Note: must use .streamlit/* (not .streamlit/) so git can un-ignore a file
+# inside the directory; a trailing / ignores the whole directory and negation
+# rules cannot override that.
+.streamlit/*
+!.streamlit/config.toml
 
 # Runtime artifacts
 logs/*.log

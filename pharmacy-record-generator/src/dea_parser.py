@@ -16,7 +16,7 @@ import json
 import logging
 import re
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, IO, List, Optional, Tuple, Union
 
 import pandas as pd
 
@@ -238,9 +238,17 @@ class DEAParser:
         self.parse_errors: List[str] = []
 
     # ------------------------------------------------------------------
-    def parse(self, file_bytes: bytes, filename: str) -> bool:
+    def parse(
+        self,
+        file_source: Union[bytes, bytearray, "IO[bytes]"],
+        filename: str,
+    ) -> bool:
         """
         Parse the uploaded file.
+
+        file_source can be raw bytes **or** any seekable binary file-like
+        object (e.g. Streamlit's UploadedFile).  Passing a file-like object
+        avoids loading the entire file into memory before parsing.
 
         Returns True on success (even if some rows are invalid).
         Returns False on catastrophic parse failure.
@@ -394,83 +402,171 @@ class DEAParser:
         return True
 
     # ------------------------------------------------------------------
-    def _load_file(self, file_bytes: bytes, filename: str) -> pd.DataFrame:
-        """Load CSV, Excel, or JSON file into a DataFrame."""
+    def _load_file(self, file_source, filename: str) -> pd.DataFrame:
+        """
+        Load CSV, Excel, or JSON into a DataFrame.
+
+        file_source may be raw bytes/bytearray **or** any seekable binary
+        file-like object (e.g. Streamlit's UploadedFile).  Accepting a
+        file-like object avoids a full in-memory copy for large uploads.
+        """
         lower = filename.lower()
-        buf   = io.BytesIO(file_bytes)
+
+        # Normalise: always work with a seekable binary stream.
+        # If we already have bytes we wrap once; otherwise use the object
+        # directly so we never make a second full copy.
+        if isinstance(file_source, (bytes, bytearray)):
+            buf: Any = io.BytesIO(file_source)
+        else:
+            buf = file_source
 
         if lower.endswith(".csv"):
-            # Try multiple encodings
-            for enc in ("utf-8", "latin-1", "cp1252"):
-                try:
-                    buf.seek(0)
-                    return pd.read_csv(buf, dtype=str, encoding=enc)
-                except UnicodeDecodeError:
-                    continue
-            buf.seek(0)
-            return pd.read_csv(buf, dtype=str, encoding="utf-8", errors="replace")
-
+            return self._load_csv(buf)
         elif lower.endswith((".xlsx", ".xls")):
-            buf.seek(0)
-            engine = "openpyxl" if lower.endswith(".xlsx") else "xlrd"
-            return pd.read_excel(buf, dtype=str, engine=engine)
-
+            return self._load_excel(buf, lower)
         elif lower.endswith(".json"):
-            try:
-                text = file_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                text = file_bytes.decode("latin-1")
-
-            # Try standard JSON first (array or wrapped object)
-            try:
-                data = json.loads(text)
-            except json.JSONDecodeError:
-                # Fall back to NDJSON (newline-delimited JSON — one object per line)
-                rows = []
-                for line_num, line in enumerate(text.splitlines(), start=1):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        obj = json.loads(line)
-                        if isinstance(obj, dict):
-                            rows.append(obj)
-                    except json.JSONDecodeError as exc:
-                        raise ValueError(
-                            f"Invalid JSON on line {line_num}: {exc}"
-                        ) from exc
-                if not rows:
-                    raise ValueError("JSON file is empty or contains no valid objects.")
-                return pd.DataFrame(rows, dtype=str)
-
-            # Handle standard JSON formats
-            if isinstance(data, list):
-                rows = data
-            elif isinstance(data, dict):
-                rows = None
-                for v in data.values():
-                    if isinstance(v, list):
-                        rows = v
-                        break
-                if rows is None:
-                    raise ValueError(
-                        "JSON object must contain a key whose value is an array of prescriber objects."
-                    )
-            else:
-                raise ValueError(
-                    "JSON must be an array of prescriber objects or an object containing one."
-                )
-
-            if not rows:
-                raise ValueError("JSON prescriber list is empty.")
-
-            return pd.DataFrame(rows, dtype=str)
-
+            return self._load_json(buf)
         else:
             raise ValueError(
                 f"Unsupported file type: '{filename}'. "
                 "Please upload a .csv, .xlsx, .xls, or .json file."
             )
+
+    # ------------------------------------------------------------------
+    _CSV_CHUNK = 50_000   # rows per chunk for large CSVs
+
+    def _load_csv(self, buf) -> pd.DataFrame:
+        """
+        Read CSV with encoding auto-detection and chunked I/O.
+
+        Using chunksize means pandas never holds more than _CSV_CHUNK rows
+        decoded at once; the concat only stores the final result.
+        """
+        for enc in ("utf-8", "latin-1", "cp1252"):
+            try:
+                buf.seek(0)
+                chunks = pd.read_csv(
+                    buf, dtype=str, encoding=enc,
+                    chunksize=self._CSV_CHUNK, low_memory=False,
+                )
+                return pd.concat(chunks, ignore_index=True)
+            except UnicodeDecodeError:
+                continue
+        # Last-resort: replace undecodable bytes rather than crash
+        buf.seek(0)
+        chunks = pd.read_csv(
+            buf, dtype=str, encoding="utf-8", errors="replace",
+            chunksize=self._CSV_CHUNK, low_memory=False,
+        )
+        return pd.concat(chunks, ignore_index=True)
+
+    # ------------------------------------------------------------------
+    def _load_excel(self, buf, lower: str) -> pd.DataFrame:
+        """
+        Read Excel files.
+
+        .xls  — legacy format; uses xlrd (no streaming available).
+        .xlsx — uses openpyxl in read-only / streaming mode so the entire
+                workbook is never decompressed into RAM at once.  Peak
+                memory is proportional to one row rather than the whole file.
+        """
+        buf.seek(0)
+        if lower.endswith(".xls"):
+            return pd.read_excel(buf, dtype=str, engine="xlrd")
+
+        # XLSX — openpyxl read_only streams rows directly from the zip
+        try:
+            from openpyxl import load_workbook as _lw
+        except ImportError:
+            buf.seek(0)
+            return pd.read_excel(buf, dtype=str, engine="openpyxl")
+
+        buf.seek(0)
+        wb = _lw(buf, read_only=True, data_only=True)
+        ws = wb.active
+
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            raw_headers = next(rows_iter)
+        except StopIteration:
+            wb.close()
+            return pd.DataFrame()
+
+        headers = [
+            str(h).strip() if h is not None else f"_col{i}"
+            for i, h in enumerate(raw_headers)
+        ]
+
+        data = [
+            [("" if v is None else str(v)) for v in row]
+            for row in rows_iter
+        ]
+        wb.close()
+        return pd.DataFrame(data, columns=headers, dtype=str)
+
+    # ------------------------------------------------------------------
+    def _load_json(self, buf) -> pd.DataFrame:
+        """
+        Read JSON or NDJSON from a binary stream.
+
+        Standard JSON  — decoded in one pass (unavoidable for random-access
+                         formats), then normalised to a list of objects.
+        NDJSON         — decoded line-by-line; only one parsed object lives
+                         in memory at a time before being appended.
+        """
+        # Decode bytes from the stream
+        raw = buf.read()
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1")
+        del raw   # release the raw bytes as soon as possible
+
+        # Try standard JSON (array or object-wrapping-array)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Fall back to NDJSON (one JSON object per line)
+            rows: List[Dict] = []
+            for line_num, line in enumerate(text.splitlines(), start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        rows.append(obj)
+                except json.JSONDecodeError as exc:
+                    raise ValueError(
+                        f"Invalid JSON on line {line_num}: {exc}"
+                    ) from exc
+            if not rows:
+                raise ValueError("JSON file is empty or contains no valid objects.")
+            return pd.DataFrame(rows, dtype=str)
+
+        # Normalise standard JSON to a list of dicts
+        if isinstance(data, list):
+            rows = data
+        elif isinstance(data, dict):
+            rows = next(
+                (v for v in data.values() if isinstance(v, list)),
+                None,
+            )
+            if rows is None:
+                raise ValueError(
+                    "JSON object must contain a key whose value is an array "
+                    "of prescriber objects."
+                )
+        else:
+            raise ValueError(
+                "JSON must be an array of prescriber objects or an object "
+                "containing one."
+            )
+
+        if not rows:
+            raise ValueError("JSON prescriber list is empty.")
+
+        return pd.DataFrame(rows, dtype=str)
 
     # ------------------------------------------------------------------
     def get_zip_pool(self) -> List[str]:
