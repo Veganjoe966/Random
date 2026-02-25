@@ -6,7 +6,6 @@ Excel workbook features:
   - "Summary" sheet: KPIs, top-10 drugs, payment breakdown, prescriber table
   - "Validation Report" sheet (if DEA issues exist)
   - Professional table formatting with alternating row colors
-  - Simulation disclaimer in every workbook
 """
 
 import io
@@ -90,10 +89,6 @@ class ExportModule:
     def to_csv_bytes(self) -> bytes:
         """Return UTF-8 CSV bytes of the full dispensing records."""
         buf = io.StringIO()
-        # Prepend disclaimer row
-        buf.write(
-            "*** SIMULATED DATA — FOR COMPLIANCE TRAINING AND AUDIT TESTING ONLY ***\n"
-        )
         buf.write(f"Pharmacy: {self.pharmacy.get('pharmacy_name', '')},,"
                   f"Date Range: {self.date_range_str}\n\n")
         self.df.to_csv(buf, index=False)
@@ -138,18 +133,17 @@ class ExportModule:
 
         # --- Title rows ---
         pharmacy_name = self.pharmacy.get("pharmacy_name", "Unknown Pharmacy")
-        ws.append([f"SIMULATED DISPENSING RECORD — {pharmacy_name.upper()}"])
+        ws.append([pharmacy_name.upper()])
         ws.append([f"Date Range: {self.date_range_str}"])
-        ws.append(["*** FOR COMPLIANCE TRAINING AND AUDIT TESTING ONLY ***"])
         ws.append([])   # blank row
 
-        for row_idx in [1, 2, 3]:
+        for row_idx in [1, 2]:
             cell = ws.cell(row=row_idx, column=1)
-            cell.font = Font(bold=True, size=11, color="9C0006")
+            cell.font = Font(bold=True, size=11)
 
         # --- Column headers ---
         headers = [str(c).replace("_", " ").title() for c in self.df.columns]
-        header_row = 5
+        header_row = 4
         ws.append(headers)
 
         for col_idx, header in enumerate(headers, start=1):
@@ -223,16 +217,11 @@ class ExportModule:
         r = 1
 
         # Title
-        ws.cell(row=r, column=1, value="DISPENSING RECORD — SIMULATION SUMMARY").font = Font(
-            bold=True, size=14, color="9C0006"
+        ws.cell(row=r, column=1, value="DISPENSING RECORD SUMMARY").font = Font(
+            bold=True, size=14
         )
         ws.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
         ws.cell(row=r, column=1).alignment = Alignment(horizontal="center")
-        r += 1
-
-        ws.cell(row=r, column=1, value="*** SIMULATED DATA — FOR TRAINING ONLY ***").font = Font(
-            bold=True, color="9C0006"
-        )
         r += 2
 
         # Pharmacy details
