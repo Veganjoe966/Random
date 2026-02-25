@@ -257,6 +257,52 @@ with st.sidebar:
         f"~{int(record_count * 0.72):,} non-controlled"
     )
 
+    st.divider()
+
+    # --- State Filter ---
+    st.subheader("🗺️ State Filter")
+    st.caption("Restrict patients and prescribers to a single state.")
+
+    _US_STATES = {
+        "AL": "Alabama",        "AK": "Alaska",         "AZ": "Arizona",
+        "AR": "Arkansas",       "CA": "California",     "CO": "Colorado",
+        "CT": "Connecticut",    "DE": "Delaware",       "FL": "Florida",
+        "GA": "Georgia",        "HI": "Hawaii",         "ID": "Idaho",
+        "IL": "Illinois",       "IN": "Indiana",        "IA": "Iowa",
+        "KS": "Kansas",         "KY": "Kentucky",       "LA": "Louisiana",
+        "ME": "Maine",          "MD": "Maryland",       "MA": "Massachusetts",
+        "MI": "Michigan",       "MN": "Minnesota",      "MS": "Mississippi",
+        "MO": "Missouri",       "MT": "Montana",        "NE": "Nebraska",
+        "NV": "Nevada",         "NH": "New Hampshire",  "NJ": "New Jersey",
+        "NM": "New Mexico",     "NY": "New York",       "NC": "North Carolina",
+        "ND": "North Dakota",   "OH": "Ohio",           "OK": "Oklahoma",
+        "OR": "Oregon",         "PA": "Pennsylvania",   "RI": "Rhode Island",
+        "SC": "South Carolina", "SD": "South Dakota",   "TN": "Tennessee",
+        "TX": "Texas",          "UT": "Utah",           "VT": "Vermont",
+        "VA": "Virginia",       "WA": "Washington",     "WV": "West Virginia",
+        "WI": "Wisconsin",      "WY": "Wyoming",
+    }
+
+    state_options = ["All States (random)"] + [
+        f"{abbr} — {name}" for abbr, name in sorted(_US_STATES.items(), key=lambda x: x[1])
+    ]
+
+    state_selection = st.selectbox(
+        "Target State",
+        state_options,
+        index=0,
+        help=(
+            "When a state is selected: patient addresses are restricted to that "
+            "state and prescribers are filtered (uploaded) or generated (auto) "
+            "for that state."
+        ),
+    )
+
+    target_state: Optional[str] = (
+        None if state_selection == "All States (random)"
+        else state_selection.split(" — ")[0]
+    )
+
 
 # ===========================================================================
 # MAIN PANEL
@@ -277,7 +323,7 @@ with tab_upload:
     st.header("Prescriber / DEA File Upload")
     st.markdown(
         """
-        Upload a prescriber list in **CSV or Excel** format.
+        Upload a prescriber list in **CSV, Excel, or JSON** format.
         Supported columns (flexible naming — header auto-detected):
 
         | Field | Example Headers |
@@ -290,13 +336,22 @@ with tab_upload:
         | Address | `Address`, `Street Address` |
 
         If no file is uploaded, a **realistic simulated prescriber pool** will be generated automatically.
+
+        **JSON format** — supply an array of objects (or an object with one array-valued key):
+        ```json
+        [
+          {"prescriber_name": "Dr. Jane Smith", "dea_number": "BS1234563",
+           "npi": "1234567893", "specialty": "Pain Management",
+           "state": "TX", "zip": "77001"}
+        ]
+        ```
         """
     )
 
     uploaded_file = st.file_uploader(
         "Upload DEA / Prescriber List",
-        type=["csv", "xlsx", "xls"],
-        help="Accepted formats: CSV, Excel (.xlsx, .xls)",
+        type=["csv", "xlsx", "xls", "json"],
+        help="Accepted formats: CSV, Excel (.xlsx, .xls), JSON (.json)",
     )
 
     if uploaded_file is not None:
@@ -381,6 +436,7 @@ with tab_generate:
             | City / State | {city}, {state} |
             | Period | {report_start.strftime('%m/%d/%Y')} – {report_end.strftime('%m/%d/%Y')} |
             | Target Records | {record_count:,} |
+            | State Filter | {target_state if target_state else "All States"} |
             """
         )
 
@@ -438,7 +494,24 @@ with tab_generate:
         }
 
         # Prepare prescriber pool
-        prescribers = st.session_state.get("prescribers") or generate_prescriber_pool(count=60)
+        raw_prescribers = st.session_state.get("prescribers")
+        if raw_prescribers:
+            if target_state:
+                # Filter uploaded prescribers to the selected state
+                prescribers = [
+                    p for p in raw_prescribers
+                    if p.get("state", "").strip().upper() == target_state
+                ]
+                if not prescribers:
+                    status_text.warning(
+                        f"⚠️  No uploaded prescribers found for state '{target_state}'. "
+                        "Using full uploaded pool."
+                    )
+                    prescribers = raw_prescribers
+            else:
+                prescribers = raw_prescribers
+        else:
+            prescribers = generate_prescriber_pool(count=60, target_state=target_state)
 
         # Initialize services
         ndc_service = NDCService()
@@ -459,6 +532,7 @@ with tab_generate:
                 pharmacy_config=pharmacy_config,
                 ndc_service=ndc_service,
                 prescribers=prescribers,
+                target_state=target_state,
             )
 
             status_text.info("⚙️  Generating dispensing records...")

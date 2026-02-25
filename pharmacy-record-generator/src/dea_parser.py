@@ -1,7 +1,7 @@
 """
 DEA / Prescriber file parser.
 
-Supports CSV and Excel (.xlsx / .xls) uploads.
+Supports CSV, Excel (.xlsx / .xls), and JSON uploads.
 Performs:
   - Dynamic column detection via fuzzy header matching
   - DEA format validation with checksum
@@ -12,6 +12,7 @@ Performs:
 """
 
 import io
+import json
 import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -108,18 +109,50 @@ _LAST_NAMES = [
 
 _REGISTRANT_TYPES = list("ABMPS")   # Common for practitioners
 
+# One representative (city, zip) per state for auto-generated prescribers
+_STATE_CITY_ZIP: Dict[str, tuple] = {
+    "AL": ("Birmingham",      "35201"), "AK": ("Anchorage",      "99501"),
+    "AZ": ("Phoenix",         "85001"), "AR": ("Little Rock",    "72201"),
+    "CA": ("Los Angeles",     "90001"), "CO": ("Denver",         "80201"),
+    "CT": ("Hartford",        "06101"), "DE": ("Wilmington",     "19801"),
+    "FL": ("Miami",           "33101"), "GA": ("Atlanta",        "30301"),
+    "HI": ("Honolulu",        "96801"), "ID": ("Boise",          "83701"),
+    "IL": ("Chicago",         "60601"), "IN": ("Indianapolis",   "46201"),
+    "IA": ("Des Moines",      "50301"), "KS": ("Wichita",        "67201"),
+    "KY": ("Louisville",      "40201"), "LA": ("New Orleans",    "70112"),
+    "ME": ("Portland",        "04101"), "MD": ("Baltimore",      "21201"),
+    "MA": ("Boston",          "02101"), "MI": ("Detroit",        "48201"),
+    "MN": ("Minneapolis",     "55401"), "MS": ("Jackson",        "39201"),
+    "MO": ("Kansas City",     "64101"), "MT": ("Billings",       "59101"),
+    "NE": ("Omaha",           "68101"), "NV": ("Las Vegas",      "89101"),
+    "NH": ("Manchester",      "03101"), "NJ": ("Newark",         "07101"),
+    "NM": ("Albuquerque",     "87101"), "NY": ("New York",       "10001"),
+    "NC": ("Charlotte",       "28201"), "ND": ("Fargo",          "58101"),
+    "OH": ("Columbus",        "43201"), "OK": ("Oklahoma City",  "73101"),
+    "OR": ("Portland",        "97201"), "PA": ("Philadelphia",   "19101"),
+    "RI": ("Providence",      "02901"), "SC": ("Columbia",       "29201"),
+    "SD": ("Sioux Falls",     "57101"), "TN": ("Nashville",      "37201"),
+    "TX": ("Houston",         "77001"), "UT": ("Salt Lake City", "84101"),
+    "VT": ("Burlington",      "05401"), "VA": ("Richmond",       "23220"),
+    "WA": ("Seattle",         "98101"), "WV": ("Charleston",     "25301"),
+    "WI": ("Milwaukee",       "53201"), "WY": ("Cheyenne",       "82001"),
+}
+
 
 def generate_prescriber_pool(
     count: int = 60,
     seed: Optional[int] = None,
+    target_state: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Generate a realistic simulated prescriber pool.
 
     Parameters
     ----------
-    count : int   — number of prescribers to generate
-    seed  : int   — optional random seed for reproducibility
+    count        : int — number of prescribers to generate
+    seed         : int — optional random seed for reproducibility
+    target_state : str — 2-letter state code; if set, all prescribers are
+                         placed in that state
     """
     import random
 
@@ -129,11 +162,12 @@ def generate_prescriber_pool(
     prescribers = []
     used_deas = set()
 
-    zip_pool = [
-        "10001", "90210", "60601", "77001", "85001", "30301", "98101",
-        "02101", "19101", "33101", "75201", "48201", "97201", "80201",
-        "55401", "70112", "94102", "89101", "37201", "35203",
-    ]
+    # Build city/zip pool for this call
+    if target_state and target_state.upper() in _STATE_CITY_ZIP:
+        st = target_state.upper()
+        city_zip_pool = [(_STATE_CITY_ZIP[st][0], st, _STATE_CITY_ZIP[st][1])]
+    else:
+        city_zip_pool = [(city, st, zp) for st, (city, zp) in _STATE_CITY_ZIP.items()]
 
     for _ in range(count):
         first = random.choice(_FIRST_NAMES)
@@ -149,9 +183,7 @@ def generate_prescriber_pool(
                 break
 
         npi = generate_valid_npi()
-        zip_code = random.choice(zip_pool)
-        city = "Anytown"
-        state = "XX"
+        city, state, zip_code = random.choice(city_zip_pool)
 
         prescribers.append({
             "prescriber_name": f"Dr. {first} {last}",
@@ -159,7 +191,7 @@ def generate_prescriber_pool(
             "last_name":       last,
             "dea_number":      dea,
             "npi":             npi,
-            "address":         f"{random.randint(100,9999)} Medical Drive",
+            "address":         f"{random.randint(100, 9999)} Medical Drive",
             "city":            city,
             "state":           state,
             "zip":             zip_code,
@@ -167,7 +199,7 @@ def generate_prescriber_pool(
             "source":          "simulated",
         })
 
-    logger.info("Generated %d simulated prescribers.", len(prescribers))
+    logger.info("Generated %d simulated prescribers (state=%s).", len(prescribers), target_state or "any")
     return prescribers
 
 
@@ -310,7 +342,7 @@ class DEAParser:
 
     # ------------------------------------------------------------------
     def _load_file(self, file_bytes: bytes, filename: str) -> pd.DataFrame:
-        """Load CSV or Excel file into a DataFrame."""
+        """Load CSV, Excel, or JSON file into a DataFrame."""
         lower = filename.lower()
         buf   = io.BytesIO(file_bytes)
 
@@ -330,10 +362,39 @@ class DEAParser:
             engine = "openpyxl" if lower.endswith(".xlsx") else "xlrd"
             return pd.read_excel(buf, dtype=str, engine=engine)
 
+        elif lower.endswith(".json"):
+            try:
+                data = json.loads(file_bytes.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError(f"Invalid JSON file: {exc}") from exc
+
+            # Support both a bare array and {"prescribers": [...]} / {"data": [...]}
+            if isinstance(data, list):
+                rows = data
+            elif isinstance(data, dict):
+                rows = None
+                for v in data.values():
+                    if isinstance(v, list):
+                        rows = v
+                        break
+                if rows is None:
+                    raise ValueError(
+                        "JSON object must contain a key whose value is an array of prescriber objects."
+                    )
+            else:
+                raise ValueError(
+                    "JSON must be an array of prescriber objects or an object containing one."
+                )
+
+            if not rows:
+                raise ValueError("JSON prescriber list is empty.")
+
+            return pd.DataFrame(rows, dtype=str)
+
         else:
             raise ValueError(
                 f"Unsupported file type: '{filename}'. "
-                "Please upload a .csv, .xlsx, or .xls file."
+                "Please upload a .csv, .xlsx, .xls, or .json file."
             )
 
     # ------------------------------------------------------------------
