@@ -221,6 +221,9 @@ with st.sidebar:
     with col_zip:
         zip_code = st.text_input("ZIP Code", value="62701", max_chars=5)
 
+    # Derive target state automatically from the pharmacy state field
+    target_state: Optional[str] = state.strip().upper() if len(state.strip()) == 2 else None
+
     st.divider()
 
     # --- Reporting Period ---
@@ -257,51 +260,6 @@ with st.sidebar:
         f"~{int(record_count * 0.72):,} non-controlled"
     )
 
-    st.divider()
-
-    # --- State Filter ---
-    st.subheader("🗺️ State Filter")
-    st.caption("Restrict patients and prescribers to a single state.")
-
-    _US_STATES = {
-        "AL": "Alabama",        "AK": "Alaska",         "AZ": "Arizona",
-        "AR": "Arkansas",       "CA": "California",     "CO": "Colorado",
-        "CT": "Connecticut",    "DE": "Delaware",       "FL": "Florida",
-        "GA": "Georgia",        "HI": "Hawaii",         "ID": "Idaho",
-        "IL": "Illinois",       "IN": "Indiana",        "IA": "Iowa",
-        "KS": "Kansas",         "KY": "Kentucky",       "LA": "Louisiana",
-        "ME": "Maine",          "MD": "Maryland",       "MA": "Massachusetts",
-        "MI": "Michigan",       "MN": "Minnesota",      "MS": "Mississippi",
-        "MO": "Missouri",       "MT": "Montana",        "NE": "Nebraska",
-        "NV": "Nevada",         "NH": "New Hampshire",  "NJ": "New Jersey",
-        "NM": "New Mexico",     "NY": "New York",       "NC": "North Carolina",
-        "ND": "North Dakota",   "OH": "Ohio",           "OK": "Oklahoma",
-        "OR": "Oregon",         "PA": "Pennsylvania",   "RI": "Rhode Island",
-        "SC": "South Carolina", "SD": "South Dakota",   "TN": "Tennessee",
-        "TX": "Texas",          "UT": "Utah",           "VT": "Vermont",
-        "VA": "Virginia",       "WA": "Washington",     "WV": "West Virginia",
-        "WI": "Wisconsin",      "WY": "Wyoming",
-    }
-
-    state_options = ["All States (random)"] + [
-        f"{abbr} — {name}" for abbr, name in sorted(_US_STATES.items(), key=lambda x: x[1])
-    ]
-
-    state_selection = st.selectbox(
-        "Target State",
-        state_options,
-        index=0,
-        help=(
-            "When a state is selected: patient addresses are restricted to that "
-            "state and prescribers are filtered (uploaded) or generated (auto) "
-            "for that state."
-        ),
-    )
-
-    target_state: Optional[str] = (
-        None if state_selection == "All States (random)"
-        else state_selection.split(" — ")[0]
-    )
 
 
 # ===========================================================================
@@ -436,7 +394,7 @@ with tab_generate:
             | City / State | {city}, {state} |
             | Period | {report_start.strftime('%m/%d/%Y')} – {report_end.strftime('%m/%d/%Y')} |
             | Target Records | {record_count:,} |
-            | State Filter | {target_state if target_state else "All States"} |
+            | Prescriber/Patient State | {target_state if target_state else "All States"} |
             """
         )
 
