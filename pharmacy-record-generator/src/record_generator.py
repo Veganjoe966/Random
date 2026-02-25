@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 #   Tuned so each drug is clearly the highest-volume in its schedule while
 #   remaining plausible for a real high-volume pharmacy.
 _PINNED_CONTROLLED = [
-    ("CIV", "Alprazolam",           0.30),  # ~3× avg CIV drug (10 competitors)
+    ("CIV", "Alprazolam",           0.35),  # ~3.5× avg CIV drug (10 competitors)
     ("CV",  "Promethazine/Codeine", 0.60),  # dominant over 2 other CV drugs
 ]
 
