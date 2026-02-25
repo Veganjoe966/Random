@@ -503,7 +503,7 @@ with tab_generate:
                     if p.get("state", "").strip().upper() == target_state
                 ]
                 if not prescribers:
-                    status_text.warning(
+                    st.warning(
                         f"⚠️  No uploaded prescribers found for state '{target_state}'. "
                         "Using full uploaded pool."
                     )

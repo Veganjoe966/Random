@@ -8,7 +8,7 @@ Architecture:
   - Patient pool: generated once, reused across fills
   - Prescriber pool: from uploaded DEA file or auto-generated
   - Drug selection: weighted random, respecting controlled/non-controlled ratios
-  - Refill logic: tracks per-patient, per-drug fill history
+  - Fill spacing: tracks per-patient, per-drug fill dates to prevent unrealistic early fills
   - Date distribution: weighted toward weekdays with realistic daily volume
   - NDC lookup: delegated to NDCService with caching
 """
@@ -16,8 +16,8 @@ Architecture:
 import logging
 import random
 from collections import defaultdict
-from datetime import date, datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from datetime import date, timedelta
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -30,11 +30,9 @@ from .config import (
     CONTROLLED_RATIO,
     CV_RATIO,
     INSURANCE_PLANS,
-    NON_CONTROLLED_RATIO,
     RX_BASE_MAX,
     RX_BASE_MIN,
     SCHEDULE_LABELS,
-    SIMULATION_DISCLAIMER,
 )
 from .drug_database import CONTROLLED_DRUGS, NON_CONTROLLED_DRUGS, DrugDef
 from .ndc_service import NDCService
