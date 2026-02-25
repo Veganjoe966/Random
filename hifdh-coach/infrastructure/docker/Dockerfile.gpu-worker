@@ -1,0 +1,39 @@
+# ─── Hifdh Coach GPU Worker (Whisper inference) ────────────────────
+# Based on NVIDIA CUDA for GPU acceleration
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+# Install Python 3.11
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
+    libpq5 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+
+RUN groupadd -r hifdh && useradd -r -g hifdh -d /app -s /sbin/nologin hifdh
+
+WORKDIR /app
+COPY backend/pyproject.toml .
+
+# Install PyTorch with CUDA support
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip install --no-cache-dir .
+
+# Pre-download Whisper model during build
+RUN python -c "import whisper; whisper.load_model('large-v3', device='cpu')" || true
+
+COPY backend/ .
+RUN chown -R hifdh:hifdh /app
+USER hifdh
+
+# GPU worker: single concurrency (one model per GPU)
+CMD ["celery", "-A", "app.tasks.celery_app:celery_app", \
+     "worker", \
+     "--loglevel=info", \
+     "--queues=gpu", \
+     "--concurrency=1", \
+     "--max-tasks-per-child=50", \
+     "--pool=solo"]

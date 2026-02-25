@@ -1,0 +1,51 @@
+# ─── Hifdh Coach API Server ─────────────────────────────────────────
+# Multi-stage build for minimal production image
+
+# Stage 1: Build dependencies
+FROM python:3.11-slim AS builder
+
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/pyproject.toml .
+RUN pip install --no-cache-dir --prefix=/install .
+
+# Stage 2: Production image
+FROM python:3.11-slim AS production
+
+# Security: non-root user
+RUN groupadd -r hifdh && useradd -r -g hifdh -d /app -s /sbin/nologin hifdh
+
+# Runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy installed packages
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+COPY backend/ .
+
+# Set ownership
+RUN chown -R hifdh:hifdh /app
+
+USER hifdh
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+EXPOSE 8000
+
+CMD ["gunicorn", "app.main:app", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--workers", "4", \
+     "--bind", "0.0.0.0:8000", \
+     "--timeout", "120", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-"]

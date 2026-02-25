@@ -1,0 +1,46 @@
+# ─── Python ──────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# ─── Environment ─────────────────────────────────────────────────────
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# ─── Node ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+
+# ─── Flutter ─────────────────────────────────────────────────────────
+mobile/.dart_tool/
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.packages
+mobile/ios/Pods/
+
+# ─── IDE ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ─── AI Models ───────────────────────────────────────────────────────
+*.pt
+*.bin
+*.onnx
+whisper_models/
+
+# ─── Infrastructure ─────────────────────────────────────────────────
+*.tfstate
+*.tfstate.backup
+.terraform/

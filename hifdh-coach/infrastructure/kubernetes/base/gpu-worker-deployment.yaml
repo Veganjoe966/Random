@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hifdh-gpu-worker
+  namespace: hifdh-coach
+  labels:
+    app: hifdh-gpu-worker
+    component: ai
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: hifdh-gpu-worker
+  template:
+    metadata:
+      labels:
+        app: hifdh-gpu-worker
+        component: ai
+    spec:
+      # Schedule on GPU nodes
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: gpu-worker
+          image: ghcr.io/hifdh-coach/gpu-worker:latest
+          envFrom:
+            - secretRef:
+                name: hifdh-secrets
+            - configMapRef:
+                name: hifdh-config
+          env:
+            - name: WHISPER_DEVICE
+              value: "cuda"
+            - name: WHISPER_MODEL_SIZE
+              value: "large-v3"
+          resources:
+            requests:
+              cpu: "2000m"
+              memory: "8Gi"
+              nvidia.com/gpu: "1"
+            limits:
+              cpu: "4000m"
+              memory: "16Gi"
+              nvidia.com/gpu: "1"
+          volumeMounts:
+            - name: model-cache
+              mountPath: /root/.cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: whisper-model-cache
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whisper-model-cache
+  namespace: hifdh-coach
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: gp3
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: hifdh-gpu-worker-hpa
+  namespace: hifdh-coach
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: hifdh-gpu-worker
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: Pods
+      pods:
+        metric:
+          name: celery_queue_length_gpu
+        target:
+          type: AverageValue
+          averageValue: "5"

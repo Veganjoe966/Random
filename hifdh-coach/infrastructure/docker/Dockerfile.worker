@@ -1,0 +1,23 @@
+# ─── Hifdh Coach Celery Worker (CPU tasks) ─────────────────────────
+FROM python:3.11-slim
+
+RUN groupadd -r hifdh && useradd -r -g hifdh -d /app -s /sbin/nologin hifdh
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY backend/pyproject.toml .
+RUN pip install --no-cache-dir .
+
+COPY backend/ .
+RUN chown -R hifdh:hifdh /app
+USER hifdh
+
+CMD ["celery", "-A", "app.tasks.celery_app:celery_app", \
+     "worker", \
+     "--loglevel=info", \
+     "--queues=default", \
+     "--concurrency=4", \
+     "--max-tasks-per-child=100"]

@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hifdh-config
+  namespace: hifdh-coach
+data:
+  ENVIRONMENT: "production"
+  DEBUG: "false"
+  API_V1_PREFIX: "/api/v1"
+  POSTGRES_HOST: "hifdh-postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "hifdh_coach"
+  REDIS_URL: "redis://hifdh-redis:6379/0"
+  CELERY_BROKER_URL: "redis://hifdh-redis:6379/1"
+  CELERY_RESULT_BACKEND: "redis://hifdh-redis:6379/2"
+  WHISPER_MODEL_SIZE: "large-v3"
+  WHISPER_DEVICE: "cuda"
+  MAX_AUDIO_DURATION_SECONDS: "600"
+  MAX_AUDIO_FILE_SIZE_MB: "50"
+  RATE_LIMIT_PER_MINUTE: "60"
+  RATE_LIMIT_AUDIO_UPLOAD_PER_HOUR: "20"
+  ALLOWED_ORIGINS: '["https://app.hifdah.com","https://admin.hifdah.com"]'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hifdh-secrets
+  namespace: hifdh-coach
+type: Opaque
+# In production: use external-secrets-operator or sealed-secrets
+# Values below are PLACEHOLDERS — never commit real secrets
+stringData:
+  POSTGRES_USER: "hifdh"
+  POSTGRES_PASSWORD: "CHANGE_ME"
+  JWT_SECRET_KEY: "CHANGE_ME"
+  S3_ACCESS_KEY: "CHANGE_ME"
+  S3_SECRET_KEY: "CHANGE_ME"
+  STRIPE_SECRET_KEY: "CHANGE_ME"
+  STRIPE_WEBHOOK_SECRET: "CHANGE_ME"
+  FIELD_ENCRYPTION_KEY: "CHANGE_ME"
+  SENTRY_DSN: ""
