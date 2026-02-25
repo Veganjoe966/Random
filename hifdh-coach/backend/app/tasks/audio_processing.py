@@ -45,9 +45,13 @@ def process_recitation_task(self, recitation_id: str, tenant_id: str) -> dict:
     This task runs on GPU workers via Celery routing.
     """
     import asyncio
-    return asyncio.get_event_loop().run_until_complete(
-        _process_recitation(self, recitation_id, tenant_id)
-    )
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(
+            _process_recitation(self, recitation_id, tenant_id)
+        )
+    finally:
+        loop.close()
 
 
 async def _process_recitation(task, recitation_id: str, tenant_id: str) -> dict:
@@ -309,5 +313,7 @@ async def _process_recitation(task, recitation_id: str, tenant_id: str) -> dict:
             recitation.error_message = str(exc)[:1000]
             await db.flush()
 
-            # Retry with exponential backoff
-            raise task.retry(exc=exc, countdown=60 * (2 ** task.request.retries))
+            # Retry with exponential backoff (guard against exceeding max_retries)
+            if task.request.retries < task.max_retries:
+                raise task.retry(exc=exc, countdown=60 * (2 ** task.request.retries))
+            raise

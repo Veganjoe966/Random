@@ -42,10 +42,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 EXPOSE 8000
 
-CMD ["gunicorn", "app.main:app", \
-     "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--workers", "4", \
-     "--bind", "0.0.0.0:8000", \
-     "--timeout", "120", \
-     "--access-logfile", "-", \
-     "--error-logfile", "-"]
+ENV WEB_WORKERS=4
+CMD ["sh", "-c", "gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --workers ${WEB_WORKERS} --bind 0.0.0.0:8000 --timeout 120 --access-logfile - --error-logfile -"]

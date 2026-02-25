@@ -1,6 +1,6 @@
 """
 Async SQLAlchemy engine + session factory.
-Tenant context is set per-session via PostgreSQL SET LOCAL.
+Tenant context is set per-session via PostgreSQL SET.
 """
 
 from collections.abc import AsyncGenerator
@@ -57,10 +57,12 @@ async def get_tenant_session(tenant_id: str) -> AsyncGenerator[AsyncSession, Non
     """
     Yields a session with RLS tenant context set.
     Used inside Celery tasks and anywhere outside request scope.
+
+    Uses SET (session-scoped) so the context persists for all queries.
     """
     async with async_session_factory() as session:
         await session.execute(
-            text("SET LOCAL app.current_tenant = :tid"),
+            text("SET app.current_tenant = :tid"),
             {"tid": str(tenant_id)},
         )
         try:

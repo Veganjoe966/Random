@@ -80,8 +80,12 @@ async def set_tenant_context(
     Must be used for all tenant-scoped endpoints.
     """
     if user.tenant_id:
+        # SET (without LOCAL) is session-scoped — persists across the
+        # entire session lifetime, which is per-request via get_db().
+        # SET LOCAL only lasts for the current transaction and is lost
+        # when the transaction commits.
         await db.execute(
-            text("SET LOCAL app.current_tenant = :tid"),
+            text("SET app.current_tenant = :tid"),
             {"tid": str(user.tenant_id)},
         )
     return db

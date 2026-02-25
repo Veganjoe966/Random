@@ -4,9 +4,10 @@ Uses Fernet symmetric encryption (AES-128-CBC under the hood).
 """
 
 import base64
-import hashlib
 
 from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from app.core.config import get_settings
 
@@ -14,9 +15,19 @@ settings = get_settings()
 
 
 def _derive_key(secret: str) -> bytes:
-    """Derive a 32-byte Fernet-compatible key from the config secret."""
-    digest = hashlib.sha256(secret.encode()).digest()
-    return base64.urlsafe_b64encode(digest)
+    """
+    Derive a 32-byte Fernet-compatible key using PBKDF2-HMAC-SHA256.
+    Uses a fixed application-scoped salt for deterministic derivation.
+    """
+    salt = b"hifdh-coach-field-encryption-v1"
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=480_000,
+    )
+    derived = kdf.derive(secret.encode())
+    return base64.urlsafe_b64encode(derived)
 
 
 _fernet = Fernet(_derive_key(settings.field_encryption_key))

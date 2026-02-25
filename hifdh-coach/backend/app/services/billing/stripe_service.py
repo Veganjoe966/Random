@@ -207,6 +207,17 @@ class StripeService:
         logger.info("Subscription cancelled", subscription_id=subscription_id)
         return {"status": subscription.status, "cancel_at": subscription.cancel_at}
 
+    async def cancel_subscription_for_tenant(self, customer_id: str) -> dict:
+        """Cancel all active subscriptions for a customer."""
+        subscriptions = stripe.Subscription.list(customer=customer_id, status="active")
+        results = []
+        for sub in subscriptions.data:
+            result = await self.cancel_subscription(sub.id)
+            results.append(result)
+        if not results:
+            return {"message": "No active subscriptions found"}
+        return results[0]
+
     async def handle_webhook(self, payload: bytes, sig_header: str) -> dict:
         """
         Process Stripe webhook events.
@@ -236,14 +247,17 @@ class StripeService:
 
     async def _handle_subscription_created(self, data: dict) -> dict:
         logger.info("Subscription created via webhook", subscription_id=data["id"])
+        await self._persist_subscription_change(data, "active")
         return {"status": "processed", "action": "subscription_created"}
 
     async def _handle_subscription_updated(self, data: dict) -> dict:
         logger.info("Subscription updated", subscription_id=data["id"], status=data["status"])
+        await self._persist_subscription_change(data, data.get("status", "active"))
         return {"status": "processed", "action": "subscription_updated"}
 
     async def _handle_subscription_deleted(self, data: dict) -> dict:
         logger.info("Subscription deleted", subscription_id=data["id"])
+        await self._persist_subscription_change(data, "cancelled")
         return {"status": "processed", "action": "subscription_deleted"}
 
     async def _handle_payment_succeeded(self, data: dict) -> dict:
@@ -252,7 +266,58 @@ class StripeService:
 
     async def _handle_payment_failed(self, data: dict) -> dict:
         logger.warning("Payment failed", invoice_id=data["id"])
+        # Persist payment failure: mark tenant subscription as past_due
+        customer_id = data.get("customer")
+        if customer_id:
+            await self._update_tenant_status(customer_id, "past_due")
         return {"status": "processed", "action": "payment_failed"}
+
+    async def _persist_subscription_change(self, data: dict, new_status: str) -> None:
+        """Persist subscription status changes to the tenant record."""
+        from app.core.database import async_session_factory
+        from app.models.tenant import Tenant
+        from sqlalchemy import select
+
+        customer_id = data.get("customer")
+        if not customer_id:
+            logger.warning("Webhook data missing customer ID", subscription_id=data.get("id"))
+            return
+
+        tier = data.get("metadata", {}).get("tier", "free")
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Tenant).where(Tenant.stripe_customer_id == customer_id)
+            )
+            tenant = result.scalar_one_or_none()
+            if tenant:
+                tenant.subscription_status = new_status
+                if tier in SUBSCRIPTION_TIERS:
+                    tier_info = SUBSCRIPTION_TIERS[tier]
+                    tenant.subscription_tier = tier
+                    tenant.max_students = tier_info["max_students"]
+                    tenant.max_teachers = tier_info["max_teachers"]
+                    tenant.max_monthly_recitations = tier_info["max_monthly_recitations"]
+                    tenant.max_audio_storage_gb = tier_info["max_audio_storage_gb"]
+                await session.commit()
+                logger.info("Tenant subscription updated", customer_id=customer_id, status=new_status)
+            else:
+                logger.warning("No tenant found for customer", customer_id=customer_id)
+
+    async def _update_tenant_status(self, customer_id: str, new_status: str) -> None:
+        """Update tenant subscription status by Stripe customer ID."""
+        from app.core.database import async_session_factory
+        from app.models.tenant import Tenant
+        from sqlalchemy import select
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Tenant).where(Tenant.stripe_customer_id == customer_id)
+            )
+            tenant = result.scalar_one_or_none()
+            if tenant:
+                tenant.subscription_status = new_status
+                await session.commit()
 
     def get_tier_info(self, tier: str) -> dict:
         """Get tier configuration."""

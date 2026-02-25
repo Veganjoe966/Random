@@ -4,21 +4,30 @@ metadata:
   name: hifdh-ingress
   namespace: hifdh-coach
   annotations:
-    kubernetes.io/ingress.class: nginx
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    nginx.ingress.kubernetes.io/rate-limit: "60"
-    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rpm: "60"
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
     nginx.ingress.kubernetes.io/proxy-body-size: "50m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    # Cloudflare proxy support
+    # Cloudflare proxy support + security headers
     nginx.ingress.kubernetes.io/configuration-snippet: |
       real_ip_header CF-Connecting-IP;
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';";
 spec:
+  ingressClassName: nginx
   tls:
     - hosts:
         - api.hifdah.com
+      secretName: hifdh-api-tls
+    - hosts:
         - app.hifdah.com
-      secretName: hifdh-tls
+      secretName: hifdh-app-tls
   rules:
     - host: api.hifdah.com
       http:

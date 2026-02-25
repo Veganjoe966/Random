@@ -3,11 +3,24 @@ Application configuration with environment variable loading.
 All secrets loaded from environment — never hardcoded.
 """
 
+import sys
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn, computed_field
+from pydantic import Field, PostgresDsn, RedisDsn, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Insecure default values that must be overridden in production
+_INSECURE_DEFAULTS = frozenset({
+    "CHANGE-ME-IN-PRODUCTION",
+    "CHANGE-ME-32-BYTE-KEY-HERE!!!!!",
+    "changeme",
+    "minioadmin",
+    "sk_test_placeholder",
+    "pk_test_placeholder",
+    "whsec_placeholder",
+})
 
 
 class Settings(BaseSettings):
@@ -104,6 +117,31 @@ class Settings(BaseSettings):
     # ── Rate Limiting ────────────────────────────────────────────────
     rate_limit_per_minute: int = 60
     rate_limit_audio_upload_per_hour: int = 20
+
+    @model_validator(mode="after")
+    def _validate_production_secrets(self) -> "Settings":
+        """Refuse to start in production/staging with insecure default secrets."""
+        if self.environment in ("production", "staging"):
+            insecure_fields = []
+            for field_name in (
+                "jwt_secret_key",
+                "field_encryption_key",
+                "postgres_password",
+                "stripe_secret_key",
+                "stripe_webhook_secret",
+            ):
+                value = getattr(self, field_name)
+                if value in _INSECURE_DEFAULTS:
+                    insecure_fields.append(field_name)
+            if insecure_fields:
+                msg = (
+                    f"FATAL: Insecure default values detected for "
+                    f"{', '.join(insecure_fields)} in {self.environment} mode. "
+                    f"Set these via environment variables before starting."
+                )
+                print(msg, file=sys.stderr)
+                raise ValueError(msg)
+        return self
 
 
 @lru_cache

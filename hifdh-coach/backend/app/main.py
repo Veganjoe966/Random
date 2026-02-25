@@ -2,6 +2,7 @@
 FastAPI application entry point.
 """
 
+import time
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -52,6 +53,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Rate Limiting ─────────────────────────────────────────────────────────
+# Simple in-memory rate limiter (per-IP).
+# In production, replace with Redis-backed slowapi or similar.
+_rate_limit_store: dict[str, list[float]] = {}
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """Basic per-IP rate limiting middleware."""
+    # Skip health/ready probes
+    if request.url.path in ("/health", "/ready"):
+        return await call_next(request)
+
+    client_ip = request.headers.get("CF-Connecting-IP") or request.client.host if request.client else "unknown"
+    now = time.time()
+    window = 60.0  # 1 minute window
+    max_requests = settings.rate_limit_per_minute
+
+    # Clean and check
+    timestamps = _rate_limit_store.get(client_ip, [])
+    timestamps = [t for t in timestamps if now - t < window]
+
+    if len(timestamps) >= max_requests:
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Rate limit exceeded. Try again later."},
+            headers={"Retry-After": "60"},
+        )
+
+    timestamps.append(now)
+    _rate_limit_store[client_ip] = timestamps
+
+    return await call_next(request)
+
 
 # ── Routes ───────────────────────────────────────────────────────────────
 app.include_router(api_router, prefix=settings.api_v1_prefix)

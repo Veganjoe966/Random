@@ -7,7 +7,7 @@ metadata:
     app: hifdh-gpu-worker
     component: ai
 spec:
-  replicas: 2
+  # Replica count managed by HPA
   selector:
     matchLabels:
       app: hifdh-gpu-worker
@@ -24,9 +24,14 @@ spec:
         - key: nvidia.com/gpu
           operator: Exists
           effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
       containers:
         - name: gpu-worker
-          image: ghcr.io/hifdh-coach/gpu-worker:latest
+          image: ghcr.io/hifdh-coach/gpu-worker:v1.0.0
           envFrom:
             - secretRef:
                 name: hifdh-secrets
@@ -37,6 +42,12 @@ spec:
               value: "cuda"
             - name: WHISPER_MODEL_SIZE
               value: "large-v3"
+            - name: XDG_CACHE_HOME
+              value: "/home/hifdh/.cache"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: "2000m"
@@ -46,9 +57,47 @@ spec:
               cpu: "4000m"
               memory: "16Gi"
               nvidia.com/gpu: "1"
+          startupProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - app.tasks.celery_app:celery_app
+                - inspect
+                - ping
+                - --timeout
+                - "10"
+            failureThreshold: 30
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - app.tasks.celery_app:celery_app
+                - inspect
+                - ping
+                - --timeout
+                - "10"
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - app.tasks.celery_app:celery_app
+                - inspect
+                - ping
+                - --timeout
+                - "10"
+            initialDelaySeconds: 30
+            periodSeconds: 30
           volumeMounts:
             - name: model-cache
-              mountPath: /root/.cache
+              mountPath: /home/hifdh/.cache
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -66,7 +115,7 @@ metadata:
   namespace: hifdh-coach
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
   resources:
     requests:
       storage: 10Gi
@@ -92,3 +141,20 @@ spec:
         target:
           type: AverageValue
           averageValue: "5"
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hifdh-gpu-worker-pdb
+  namespace: hifdh-coach
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hifdh-gpu-worker

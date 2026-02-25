@@ -180,19 +180,32 @@ class TajweedAnalyzer:
         detections = []
         ref = word.reference_word
 
+        # Estimate sub-word duration for the tajweed phenomenon.
+        # Madd/ghunnah are sub-word events; using whole-word duration
+        # over-estimates. We approximate the tajweed portion's duration
+        # proportionally to the character count of the relevant letters.
+        stripped = re.sub(r"[\u064B-\u065F\u0670]", "", ref)
+        total_chars = max(len(stripped), 1)
+
         # ── Madd detection ───────────────────────────────────────────
         madd_rule = self._detect_madd_type(ref)
         if madd_rule:
+            # Count madd-related characters (madd letter + surrounding)
+            madd_char_count = sum(1 for c in stripped if c in MADD_LETTERS)
+            # Estimate madd portion duration (min 30% of word, max 80%)
+            madd_ratio = max(0.3, min(0.8, (madd_char_count + 1) / total_chars))
+            estimated_duration = word.duration * madd_ratio if word.duration else None
+
             expected = RULE_DURATIONS[madd_rule]["expected"]
             score = self._calculate_duration_score(
-                word.duration, RULE_DURATIONS[madd_rule]
+                estimated_duration, RULE_DURATIONS[madd_rule]
             )
             detections.append(TajweedDetection(
                 rule=madd_rule,
                 word_position=word.position,
                 word_text=ref,
                 expected_duration=expected,
-                actual_duration=word.duration,
+                actual_duration=estimated_duration,
                 score=score,
                 within_tolerance=score >= 0.6,
             ))
@@ -200,16 +213,21 @@ class TajweedAnalyzer:
         # ── Ghunnah detection ────────────────────────────────────────
         if self._has_ghunnah(ref):
             rule = TajweedRule.GHUNNAH
+            # Ghunnah is typically a small fraction of the word
+            ghunnah_char_count = sum(1 for c in stripped if c in GHUNNAH_LETTERS)
+            ghunnah_ratio = max(0.25, min(0.6, (ghunnah_char_count + 1) / total_chars))
+            estimated_duration = word.duration * ghunnah_ratio if word.duration else None
+
             expected = RULE_DURATIONS[rule]["expected"]
             score = self._calculate_duration_score(
-                word.duration, RULE_DURATIONS[rule]
+                estimated_duration, RULE_DURATIONS[rule]
             )
             detections.append(TajweedDetection(
                 rule=rule,
                 word_position=word.position,
                 word_text=ref,
                 expected_duration=expected,
-                actual_duration=word.duration,
+                actual_duration=estimated_duration,
                 score=score,
                 within_tolerance=score >= 0.6,
             ))

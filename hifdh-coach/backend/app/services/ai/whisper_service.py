@@ -5,6 +5,7 @@ and extraction of word-level timestamps for alignment.
 """
 
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -63,25 +64,30 @@ class WhisperService:
 
     _instance: "WhisperService | None" = None
     _model: whisper.Whisper | None = None
+    _lock: threading.Lock = threading.Lock()
 
     def __new__(cls) -> "WhisperService":
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super().__new__(cls)
         return cls._instance
 
     def _load_model(self) -> whisper.Whisper:
-        """Load Whisper model (lazy, singleton)."""
+        """Load Whisper model (lazy, thread-safe singleton)."""
         if self._model is None:
-            logger.info(
-                "Loading Whisper model",
-                model=settings.whisper_model_size,
-                device=settings.whisper_device,
-            )
-            self._model = whisper.load_model(
-                settings.whisper_model_size,
-                device=settings.whisper_device,
-            )
-            logger.info("Whisper model loaded successfully")
+            with self._lock:
+                # Double-check after acquiring lock
+                if self._model is None:
+                    logger.info(
+                        "Loading Whisper model",
+                        model=settings.whisper_model_size,
+                        device=settings.whisper_device,
+                    )
+                    self._model = whisper.load_model(
+                        settings.whisper_model_size,
+                        device=settings.whisper_device,
+                    )
+                    logger.info("Whisper model loaded successfully")
         return self._model
 
     def transcribe(
@@ -146,9 +152,16 @@ class WhisperService:
                 )
             )
 
-        # Calculate total audio duration
-        audio = whisper.load_audio(audio_path)
-        duration = len(audio) / whisper.audio.SAMPLE_RATE
+        # Calculate total audio duration from the last segment's end time
+        # (avoids loading the audio file a second time)
+        if segments:
+            duration = segments[-1].end
+        elif result.get("segments"):
+            duration = result["segments"][-1].get("end", 0.0)
+        else:
+            # Fallback: load audio to get duration
+            audio = whisper.load_audio(audio_path)
+            duration = len(audio) / whisper.audio.SAMPLE_RATE
 
         transcription = TranscriptionResult(
             text=result["text"].strip(),

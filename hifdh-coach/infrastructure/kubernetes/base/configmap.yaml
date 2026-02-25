@@ -13,29 +13,29 @@ data:
   REDIS_URL: "redis://hifdh-redis:6379/0"
   CELERY_BROKER_URL: "redis://hifdh-redis:6379/1"
   CELERY_RESULT_BACKEND: "redis://hifdh-redis:6379/2"
-  WHISPER_MODEL_SIZE: "large-v3"
-  WHISPER_DEVICE: "cuda"
+  # WHISPER_MODEL_SIZE and WHISPER_DEVICE are set in gpu-worker env only
   MAX_AUDIO_DURATION_SECONDS: "600"
   MAX_AUDIO_FILE_SIZE_MB: "50"
   RATE_LIMIT_PER_MINUTE: "60"
   RATE_LIMIT_AUDIO_UPLOAD_PER_HOUR: "20"
   ALLOWED_ORIGINS: '["https://app.hifdah.com","https://admin.hifdah.com"]'
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: hifdh-secrets
-  namespace: hifdh-coach
-type: Opaque
-# In production: use external-secrets-operator or sealed-secrets
-# Values below are PLACEHOLDERS — never commit real secrets
-stringData:
-  POSTGRES_USER: "hifdh"
-  POSTGRES_PASSWORD: "CHANGE_ME"
-  JWT_SECRET_KEY: "CHANGE_ME"
-  S3_ACCESS_KEY: "CHANGE_ME"
-  S3_SECRET_KEY: "CHANGE_ME"
-  STRIPE_SECRET_KEY: "CHANGE_ME"
-  STRIPE_WEBHOOK_SECRET: "CHANGE_ME"
-  FIELD_ENCRYPTION_KEY: "CHANGE_ME"
-  SENTRY_DSN: ""
+# SECRETS MANAGEMENT
+# ==================
+# DO NOT store secrets in this file or any version-controlled file.
+# Use one of the following approaches:
+#
+# 1. external-secrets-operator (recommended):
+#    - Install: helm install external-secrets external-secrets/external-secrets
+#    - Create ExternalSecret resources pointing to AWS Secrets Manager / Vault
+#
+# 2. sealed-secrets:
+#    - Install: helm install sealed-secrets sealed-secrets/sealed-secrets
+#    - Create secrets: kubectl create secret generic hifdh-secrets \
+#        --from-literal=POSTGRES_PASSWORD=<value> ... --dry-run=client -o yaml \
+#        | kubeseal > sealed-secrets.yaml
+#
+# Required secret keys:
+#   POSTGRES_USER, POSTGRES_PASSWORD, JWT_SECRET_KEY,
+#   S3_ACCESS_KEY, S3_SECRET_KEY, STRIPE_SECRET_KEY,
+#   STRIPE_WEBHOOK_SECRET, FIELD_ENCRYPTION_KEY, SENTRY_DSN

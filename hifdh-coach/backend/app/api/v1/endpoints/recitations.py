@@ -75,16 +75,10 @@ async def upload_recitation(
             detail=f"Unsupported audio format: {audio.content_type}",
         )
 
-    # Read and check size
-    contents = await audio.read()
-    size_mb = len(contents) / (1024 * 1024)
-    if size_mb > settings.max_audio_file_size_mb:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"Audio file too large: {size_mb:.1f}MB (max {settings.max_audio_file_size_mb}MB)",
-        )
+    # Stream to temp file to avoid loading entire file into memory (DoS prevention)
+    import tempfile
+    import shutil
 
-    # Generate S3 key: tenant_id/student_id/YYYY-MM/uuid.ext
     ext = audio.filename.rsplit(".", 1)[-1] if audio.filename and "." in audio.filename else "webm"
     now = datetime.now(UTC)
     s3_key = (
@@ -92,20 +86,35 @@ async def upload_recitation(
         f"{now.strftime('%Y-%m')}/{uuid.uuid4()}.{ext}"
     )
 
-    # Upload to S3 (encrypted at rest via server-side encryption)
-    s3 = _get_s3_client()
-    s3.put_object(
-        Bucket=settings.s3_bucket_audio,
-        Key=s3_key,
-        Body=contents,
-        ContentType=audio.content_type or "audio/webm",
-        ServerSideEncryption="AES256",
-        Metadata={
-            "tenant_id": str(current_user.tenant_id),
-            "student_id": str(current_user.user_id),
-            "surah": str(surah_number),
-        },
-    )
+    total_size = 0
+    max_size_bytes = settings.max_audio_file_size_mb * 1024 * 1024
+    with tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024) as tmp:  # spool 10MB in memory
+        while chunk := await audio.read(1024 * 1024):  # read 1MB at a time
+            total_size += len(chunk)
+            if total_size > max_size_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"Audio file too large (max {settings.max_audio_file_size_mb}MB)",
+                )
+            tmp.write(chunk)
+        tmp.seek(0)
+
+        # Upload to S3 (encrypted at rest via server-side encryption)
+        s3 = _get_s3_client()
+        s3.upload_fileobj(
+            tmp,
+            settings.s3_bucket_audio,
+            s3_key,
+            ExtraArgs={
+                "ContentType": audio.content_type or "audio/webm",
+                "ServerSideEncryption": "AES256",
+                "Metadata": {
+                    "tenant_id": str(current_user.tenant_id),
+                    "student_id": str(current_user.user_id),
+                    "surah": str(surah_number),
+                },
+            },
+        )
 
     # Create recitation record
     recitation = Recitation(
@@ -117,7 +126,7 @@ async def upload_recitation(
         recitation_type=recitation_type,
         audio_file_key=s3_key,
         audio_format=ext,
-        audio_size_bytes=len(contents),
+        audio_size_bytes=total_size,
         status="uploaded",
     )
     db.add(recitation)
@@ -165,11 +174,12 @@ async def list_recitations(
     surah_number: int | None = None,
     status_filter: str | None = None,
     page: int = 1,
-    page_size: int = 20,
+    page_size: int = 20,  # capped below
     db: AsyncSession = Depends(set_tenant_context),
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """List recitations with filtering and pagination."""
+    page_size = min(page_size, 100)  # cap at 100 to prevent abuse
     query = select(Recitation)
 
     # Students see only their own
@@ -240,11 +250,14 @@ async def teacher_review(
     if review.override_score is not None:
         recitation.teacher_override_score = review.override_score
 
-    # Apply per-ayah overrides
+    # Apply per-ayah overrides (verify each score belongs to this recitation)
     if review.ayah_overrides:
         for override in review.ayah_overrides:
             ayah_result = await db.execute(
-                select(AyahScore).where(AyahScore.id == override.ayah_score_id)
+                select(AyahScore).where(
+                    AyahScore.id == override.ayah_score_id,
+                    AyahScore.recitation_id == recitation_id,  # prevent cross-recitation override
+                )
             )
             ayah_score = ayah_result.scalar_one_or_none()
             if ayah_score:

@@ -103,7 +103,10 @@ def create_access_token(
         "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
     }
     if extra_claims:
-        claims.update(extra_claims)
+        # Prevent extra_claims from overriding core JWT fields
+        protected_keys = {"sub", "tid", "role", "type", "iat", "exp"}
+        safe_claims = {k: v for k, v in extra_claims.items() if k not in protected_keys}
+        claims.update(safe_claims)
     return jwt.encode(claims, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

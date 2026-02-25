@@ -7,7 +7,7 @@ metadata:
     app: hifdh-api
     component: backend
 spec:
-  replicas: 3
+  # Replica count managed by HPA — do not set replicas here
   selector:
     matchLabels:
       app: hifdh-api
@@ -18,9 +18,37 @@ spec:
         component: backend
     spec:
       serviceAccountName: hifdh-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: hifdh-api
+      initContainers:
+        - name: run-migrations
+          image: ghcr.io/hifdh-coach/api:v1.0.0
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - secretRef:
+                name: hifdh-secrets
+            - configMapRef:
+                name: hifdh-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: api
-          image: ghcr.io/hifdh-coach/api:latest
+          image: ghcr.io/hifdh-coach/api:v1.0.0
           ports:
             - containerPort: 8000
               protocol: TCP
@@ -29,18 +57,29 @@ spec:
                 name: hifdh-secrets
             - configMapRef:
                 name: hifdh-config
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: "500m"
-              memory: "512Mi"
+              memory: "1Gi"
             limits:
               cpu: "2000m"
               memory: "2Gi"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 2
           readinessProbe:
             httpGet:
               path: /ready
               port: 8000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
@@ -95,3 +134,14 @@ spec:
         target:
           type: Utilization
           averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: hifdh-api-pdb
+  namespace: hifdh-coach
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: hifdh-api

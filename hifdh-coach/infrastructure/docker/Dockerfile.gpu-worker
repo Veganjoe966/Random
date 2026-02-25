@@ -1,11 +1,30 @@
 # ─── Hifdh Coach GPU Worker (Whisper inference) ────────────────────
-# Based on NVIDIA CUDA for GPU acceleration
-FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+# Multi-stage build based on NVIDIA CUDA for GPU acceleration
 
-# Install Python 3.11
+# Stage 1: Install dependencies
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04 AS builder
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-venv \
+    python3-pip \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+
+WORKDIR /build
+COPY backend/pyproject.toml .
+
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+RUN pip install --no-cache-dir --prefix=/install .
+
+# Stage 2: Production image
+FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
     python3-pip \
     libpq5 \
     ffmpeg \
@@ -13,21 +32,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN ln -s /usr/bin/python3.11 /usr/bin/python
 
-RUN groupadd -r hifdh && useradd -r -g hifdh -d /app -s /sbin/nologin hifdh
+RUN groupadd -r hifdh && useradd -r -g hifdh -d /home/hifdh -m -s /sbin/nologin hifdh
+
+# Copy installed packages
+COPY --from=builder /install /usr/local
+# Also need torch from builder since it was installed globally
+COPY --from=builder /usr/local/lib/python3.11/dist-packages /usr/local/lib/python3.11/dist-packages
 
 WORKDIR /app
-COPY backend/pyproject.toml .
 
-# Install PyTorch with CUDA support
-RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu124
-RUN pip install --no-cache-dir .
-
-# Pre-download Whisper model during build
-RUN python -c "import whisper; whisper.load_model('large-v3', device='cpu')" || true
+# Pre-download Whisper model during build (fail build if download fails)
+RUN mkdir -p /home/hifdh/.cache && chown -R hifdh:hifdh /home/hifdh
+ENV XDG_CACHE_HOME=/home/hifdh/.cache
+RUN python -c "import whisper; whisper.load_model('large-v3', device='cpu')"
 
 COPY backend/ .
 RUN chown -R hifdh:hifdh /app
 USER hifdh
+
+# Health check via Celery inspect
+HEALTHCHECK --interval=60s --timeout=15s --start-period=120s --retries=3 \
+    CMD celery -A app.tasks.celery_app:celery_app inspect ping --timeout 10 || exit 1
 
 # GPU worker: single concurrency (one model per GPU)
 CMD ["celery", "-A", "app.tasks.celery_app:celery_app", \

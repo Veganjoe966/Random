@@ -2,15 +2,22 @@
 Authentication endpoints: login, register, refresh, password management.
 """
 
+import time
+from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
+
+# Simple account lockout: track failed login attempts per email
+_failed_attempts: dict[str, list[float]] = defaultdict(list)
+_LOCKOUT_WINDOW = 300  # 5 minutes
+_MAX_ATTEMPTS = 5
 from app.core.security import (
     Role,
     create_access_token,
@@ -38,10 +45,22 @@ settings = get_settings()
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate user and return JWT tokens."""
+    # Account lockout check
+    now = time.time()
+    attempts = _failed_attempts[request.email]
+    attempts[:] = [t for t in attempts if now - t < _LOCKOUT_WINDOW]
+    if len(attempts) >= _MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts. Try again later.",
+        )
+
     result = await db.execute(select(User).where(User.email == request.email))
     user = result.scalar_one_or_none()
 
+    # Use consistent error message to prevent user enumeration
     if not user or not verify_password(request.password, user.hashed_password):
+        _failed_attempts[request.email].append(now)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

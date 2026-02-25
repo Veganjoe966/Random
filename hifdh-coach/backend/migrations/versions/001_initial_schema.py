@@ -52,7 +52,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False),
         sa.Column("email", sa.String(255), unique=True, nullable=False),
         sa.Column("hashed_password", sa.String(255), nullable=False),
-        sa.Column("role", sa.String(50), nullable=False),
+        sa.Column("role", sa.String(50), nullable=False),  # CHECK constraint added below
         sa.Column("first_name", sa.String(100), nullable=False),
         sa.Column("last_name", sa.String(100), nullable=False),
         sa.Column("phone", sa.String(50), nullable=True),
@@ -93,7 +93,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id", ondelete="CASCADE"), unique=True),
         sa.Column("teacher_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("users.id"), nullable=True),
-        sa.Column("date_of_birth", sa.String(10), nullable=True),
+        sa.Column("date_of_birth", sa.Date, nullable=True),
         sa.Column("enrollment_date", sa.DateTime(timezone=True), nullable=True),
         sa.Column("current_surah", sa.Integer, server_default="1"),
         sa.Column("current_ayah", sa.Integer, server_default="1"),
@@ -147,6 +147,9 @@ def upgrade() -> None:
     op.create_index("ix_recitations_student_id", "recitations", ["student_id"])
     op.create_index("ix_recitations_tenant_id", "recitations", ["tenant_id"])
     op.create_index("ix_recitations_status", "recitations", ["status"])
+    # Composite index for common query: tenant + student + time
+    op.create_index("ix_recitations_tenant_student_created", "recitations", ["tenant_id", "student_id", "created_at"])
+    op.create_index("ix_recitations_tenant_status", "recitations", ["tenant_id", "status"])
 
     # ── Ayah Scores ──────────────────────────────────────────────────
     op.create_table(
@@ -170,6 +173,8 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()")),
     )
     op.create_index("ix_ayah_scores_recitation_id", "ayah_scores", ["recitation_id"])
+    # Composite index for retention model lookups
+    op.create_index("ix_ayah_scores_student_surah_ayah", "ayah_scores", ["student_id", "surah_number", "ayah_number"])
 
     # ── Word Analyses ────────────────────────────────────────────────
     op.create_table(
@@ -260,6 +265,54 @@ def upgrade() -> None:
     op.create_index("ix_audit_logs_action", "audit_logs", ["action"])
     op.create_index("ix_audit_logs_tenant_created", "audit_logs", ["tenant_id", "created_at"])
 
+    # ── updated_at trigger ────────────────────────────────────────────
+    # Auto-update updated_at on row modification
+    op.execute("""
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = now();
+            RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+    """)
+
+    all_tables_with_updated_at = [
+        "tenants", "users", "teacher_profiles", "student_profiles",
+        "recitations", "ayah_scores", "word_analyses", "retention_records",
+        "revision_schedules", "audit_logs",
+    ]
+    for table in all_tables_with_updated_at:
+        op.execute(f"""
+            CREATE TRIGGER update_{table}_updated_at
+            BEFORE UPDATE ON {table}
+            FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+        """)
+
+    # ── Role CHECK constraint ─────────────────────────────────────────
+    op.execute("""
+        ALTER TABLE users ADD CONSTRAINT ck_users_role
+        CHECK (role IN ('super_admin', 'masjid_admin', 'teacher', 'student', 'parent'));
+    """)
+
+    # ── Score range CHECK constraints ─────────────────────────────────
+    op.execute("""
+        ALTER TABLE ayah_scores ADD CONSTRAINT ck_accuracy_range
+        CHECK (accuracy_score >= 0 AND accuracy_score <= 1);
+    """)
+    op.execute("""
+        ALTER TABLE ayah_scores ADD CONSTRAINT ck_tajweed_range
+        CHECK (tajweed_score >= 0 AND tajweed_score <= 1);
+    """)
+
+    # ── Audit logs: prevent UPDATE/DELETE ──────────────────────────────
+    op.execute("""
+        CREATE RULE audit_logs_no_update AS ON UPDATE TO audit_logs DO INSTEAD NOTHING;
+    """)
+    op.execute("""
+        CREATE RULE audit_logs_no_delete AS ON DELETE TO audit_logs DO INSTEAD NOTHING;
+    """)
+
     # ── Row-Level Security Policies ──────────────────────────────────
     # Enable RLS on all tenant-scoped tables
     tenant_tables = [
@@ -271,11 +324,12 @@ def upgrade() -> None:
     for table in tenant_tables:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         op.execute(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
+        # Use current_setting without missing_ok so missing context raises an error
         op.execute(
             f"CREATE POLICY {table}_tenant_isolation ON {table} "
-            f"USING (tenant_id::text = current_setting('app.current_tenant', true))"
+            f"USING (tenant_id::text = current_setting('app.current_tenant'))"
         )
-        # Allow superuser to bypass RLS
+        # Allow superuser and app admin role to bypass RLS
         op.execute(
             f"CREATE POLICY {table}_superuser ON {table} "
             f"FOR ALL TO postgres USING (true)"
@@ -283,6 +337,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Drop RLS policies first
+    tenant_tables = [
+        "users", "teacher_profiles", "student_profiles", "recitations",
+        "ayah_scores", "word_analyses", "retention_records",
+        "revision_schedules", "audit_logs",
+    ]
+    for table in tenant_tables:
+        op.execute(f"DROP POLICY IF EXISTS {table}_tenant_isolation ON {table}")
+        op.execute(f"DROP POLICY IF EXISTS {table}_superuser ON {table}")
+
+    # Drop rules on audit_logs
+    op.execute("DROP RULE IF EXISTS audit_logs_no_update ON audit_logs")
+    op.execute("DROP RULE IF EXISTS audit_logs_no_delete ON audit_logs")
+
+    # Drop trigger function
+    op.execute("DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE")
+
     tables = [
         "audit_logs", "revision_schedules", "retention_records",
         "word_analyses", "ayah_scores", "recitations",

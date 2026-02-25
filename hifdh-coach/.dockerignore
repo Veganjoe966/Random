@@ -1,0 +1,44 @@
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Documentation
+docs/
+*.md
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov/
+coverage.xml
+.coverage
+
+# Node
+node_modules
+.next
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Infrastructure (not needed inside images)
+infrastructure/kubernetes
+infrastructure/docker/docker-compose.yml
+
+# OS
+.DS_Store
+Thumbs.db

@@ -24,11 +24,21 @@ celery_app.conf.update(
     enable_utc=True,
 
     # Task routing: GPU tasks go to gpu queue, others to default
+    # Use fully qualified task names that match Celery autodiscover
     task_routes={
+        "app.tasks.audio_processing.process_recitation_task": {"queue": "gpu"},
         "process_recitation": {"queue": "gpu"},
-        "generate_daily_schedules": {"queue": "default"},
-        "aggregate_analytics": {"queue": "default"},
-        "meter_usage": {"queue": "default"},
+        "app.tasks.*": {"queue": "default"},
+    },
+
+    # Time limits
+    task_time_limit=3600,           # hard kill after 1 hour
+    task_soft_time_limit=3000,      # raise SoftTimeLimitExceeded after 50 min
+
+    # Broker connection resilience
+    broker_connection_retry_on_startup=True,
+    broker_transport_options={
+        "visibility_timeout": 43200,  # 12 hours for long GPU tasks
     },
 
     # Retry settings
@@ -42,22 +52,22 @@ celery_app.conf.update(
     # Beat schedule (periodic tasks)
     beat_schedule={
         "generate-daily-schedules": {
-            "task": "generate_daily_schedules",
+            "task": "app.tasks.scheduling.generate_daily_schedules",
             "schedule": 3600.0 * 4,  # every 4 hours
             "options": {"queue": "default"},
         },
         "aggregate-analytics": {
-            "task": "aggregate_analytics",
+            "task": "app.tasks.analytics.aggregate_analytics",
             "schedule": 3600.0,  # every hour
             "options": {"queue": "default"},
         },
         "decay-retention-scores": {
-            "task": "decay_retention_scores",
+            "task": "app.tasks.retention.decay_retention_scores",
             "schedule": 3600.0 * 6,  # every 6 hours
             "options": {"queue": "default"},
         },
         "meter-stripe-usage": {
-            "task": "meter_usage",
+            "task": "app.tasks.billing.meter_usage",
             "schedule": 3600.0,  # every hour
             "options": {"queue": "default"},
         },

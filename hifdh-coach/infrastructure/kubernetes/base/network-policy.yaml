@@ -1,0 +1,146 @@
+# ─── Network Policies ─────────────────────────────────────────────────
+# Restrict pod-to-pod communication to only what's needed
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: hifdh-coach
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Allow API pods to receive traffic from ingress and communicate with DB/Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hifdh-api-netpol
+  namespace: hifdh-coach
+spec:
+  podSelector:
+    matchLabels:
+      app: hifdh-api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - port: 8000
+          protocol: TCP
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # External HTTPS (Stripe, Sentry)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+---
+# Allow GPU workers to communicate with DB, Redis, and S3
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hifdh-gpu-worker-netpol
+  namespace: hifdh-coach
+spec:
+  podSelector:
+    matchLabels:
+      app: hifdh-gpu-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    # Redis (broker + results)
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    # DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # S3 / MinIO (audio download)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 9000
+          protocol: TCP
+---
+# Allow CPU workers similar access
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hifdh-worker-netpol
+  namespace: hifdh-coach
+spec:
+  podSelector:
+    matchLabels:
+      app: hifdh-worker
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-postgres
+      ports:
+        - port: 5432
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              app: hifdh-redis
+      ports:
+        - port: 6379
+          protocol: TCP
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+        - port: 443
+          protocol: TCP

@@ -96,9 +96,15 @@ async def update_tenant(
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
+    # Only allow updating whitelisted fields (prevent mass assignment)
+    ALLOWED_UPDATE_FIELDS = {
+        "name", "email", "phone", "address", "city",
+        "country", "timezone", "billing_email", "settings",
+    }
     update_data = request.model_dump(exclude_unset=True)
     for key, value in update_data.items():
-        setattr(tenant, key, value)
+        if key in ALLOWED_UPDATE_FIELDS:
+            setattr(tenant, key, value)
 
     await db.flush()
     await db.refresh(tenant)
@@ -115,6 +121,7 @@ async def list_tenants(
     db: AsyncSession = Depends(get_db),
 ):
     """List all tenants. Super admin only."""
+    page_size = min(page_size, 100)
     query = (
         select(Tenant)
         .where(Tenant.deleted_at.is_(None))
