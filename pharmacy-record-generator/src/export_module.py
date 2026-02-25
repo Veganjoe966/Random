@@ -143,7 +143,6 @@ class ExportModule:
         ws.append(["*** FOR COMPLIANCE TRAINING AND AUDIT TESTING ONLY ***"])
         ws.append([])   # blank row
 
-        title_font = Font(bold=True, size=12, color=_HEADER_FONT)
         for row_idx in [1, 2, 3]:
             cell = ws.cell(row=row_idx, column=1)
             cell.font = Font(bold=True, size=11, color="9C0006")

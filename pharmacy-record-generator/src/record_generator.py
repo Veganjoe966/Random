@@ -288,8 +288,6 @@ class RecordGenerator:
         logger.info("Pre-fetching %d NDC entries...", len(all_search_terms))
         self.ndc_service.preload(all_search_terms)
 
-        # Generate patient pool (35–50% of target count = unique patients)
-        num_patients = max(20, int(num_records * random.uniform(0.35, 0.50)))
         patients: Dict[int, Dict[str, Any]] = {}
 
         # Fill history: patient_id → {drug_name: [fill_dates]}
@@ -368,16 +366,10 @@ class RecordGenerator:
 
                 patient, pat_id = self._get_or_create_patient(patients, drug, fill_date)
 
-                # Determine refill number
+                # Determine refill number (always 0 for CII since max_refills=0)
                 refill_num = self._compute_refill_number(
                     pat_id, drug, fill_date, fill_history
                 )
-
-                # CII: new Rx each time (refill_num always 0 for new Rx)
-                if schedule == "CII" and refill_num > 0:
-                    # Each CII fill requires a new written Rx - simulate with refill=0
-                    # but still track the history to prevent early fills
-                    pass
 
                 # Check for unrealistically early refill (< 25 days from last fill)
                 last_fills = fill_history[pat_id][drug["name"]]
@@ -454,9 +446,8 @@ class RecordGenerator:
             # Refill logic
             refill_num = self._compute_refill_number(pat_id, drug, fill_date, fill_history)
 
-            # Non-controlled acute meds (max_refills=0): only new fills
-            if drug["max_refills"] == 0 and refill_num > 0:
-                # check minimum spacing for acute meds (7-14 days)
+            # Acute meds (max_refills=0): enforce minimum 7-day spacing between fills
+            if drug["max_refills"] == 0:
                 last_fills = fill_history[pat_id][drug["name"]]
                 if last_fills:
                     days_since = (fill_date - max(last_fills)).days

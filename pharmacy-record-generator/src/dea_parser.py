@@ -255,8 +255,7 @@ class DEAParser:
                 })
                 continue
 
-            from .validators import validate_dea as _vdea
-            ok, msg = _vdea(dea_norm) if dea_norm else (False, "Missing DEA")
+            ok, msg = validate_dea(dea_norm) if dea_norm else (False, "Missing DEA")
 
             if not ok:
                 self.validation_report.append({
