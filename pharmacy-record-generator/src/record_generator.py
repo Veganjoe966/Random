@@ -468,10 +468,13 @@ class RecordGenerator:
         # Each pinned drug receives its per-drug fraction of its schedule's total
         # slots; those slots are deducted from the random-fill pool so the
         # overall count stays the same.
+        # Only include drugs that actually exist in the database so deductions
+        # are never made for drugs that would be skipped (Bug #5 fix).
         sched_totals = dict(schedule_counts)
         pinned_counts: Dict[Tuple[str, str], int] = {
             (p_sched, p_name): max(3, int(sched_totals.get(p_sched, 0) * frac))
             for p_sched, p_name, frac in _PINNED_CONTROLLED
+            if _drug_lookup.get(p_sched, {}).get(p_name) is not None
         }
 
         pinned_deductions: Dict[str, int] = defaultdict(int)
@@ -482,16 +485,29 @@ class RecordGenerator:
             sched: max(0, cnt - pinned_deductions.get(sched, 0))
             for sched, cnt in sched_totals.items()
         }
+        for sched, cnt in adjusted_counts.items():
+            if cnt == 0 and pinned_deductions.get(sched, 0) > 0:
+                logger.warning("Schedule %s: pinned allocation consumed all slots.", sched)
 
         # --- Guaranteed fills for pinned drugs ---
+        # Uses a while loop with a max-attempts guard (25× target) so the
+        # 25-day early-refill check cannot cause an infinite loop (Bug #1/#2 fix).
         for p_sched, p_name, _ in _PINNED_CONTROLLED:
             p_drug = _drug_lookup.get(p_sched, {}).get(p_name)
             if p_drug is None:
                 logger.warning("Pinned drug '%s' (%s) not found in database — skipping.", p_name, p_sched)
                 continue
-            for _ in range(pinned_counts[(p_sched, p_name)]):
+            target   = pinned_counts[(p_sched, p_name)]
+            done     = 0
+            attempts = 0
+            max_att  = target * 25
+            while done < target and attempts < max_att:
+                attempts += 1
                 fill_date = random.choice(date_pool)
                 patient, pat_id = self._get_or_create_patient(patients, p_drug, fill_date)
+                last_fills = fill_history[pat_id][p_drug["name"]]
+                if last_fills and (fill_date - max(last_fills)).days < 25:
+                    continue    # too early — try a different date/patient
                 fill_history[pat_id][p_drug["name"]].append(fill_date)
                 prescriber  = self._select_prescriber(p_drug, p_sched)
                 ndc_result  = self.ndc_service.lookup(p_drug["search_term"])
@@ -527,16 +543,22 @@ class RecordGenerator:
                     "diagnosis":            random.choice(p_drug["diagnoses"]),
                     "_sort_date":           fill_date,
                 })
+                done += 1
 
         # --- Random fills for remaining slots ---
+        # Max-attempts guard (50× target) prevents infinite loops when the
+        # 25-day check rejects most candidates (Bug #4 fix).
         for schedule, count in schedule_counts:
             count = adjusted_counts[schedule]
             if count <= 0:
                 continue
-            drugs = CONTROLLED_DRUGS[schedule]
+            drugs     = CONTROLLED_DRUGS[schedule]
             generated = 0
+            attempts  = 0
+            max_att   = count * 50
 
-            while generated < count:
+            while generated < count and attempts < max_att:
+                attempts += 1
                 drug = random.choice(drugs)
                 fill_date = random.choice(date_pool)
 
