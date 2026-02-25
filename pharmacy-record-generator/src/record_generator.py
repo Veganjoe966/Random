@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 #   remaining plausible for a real high-volume pharmacy.
 _PINNED_CONTROLLED = [
     ("CIV", "Alprazolam",           0.30),  # ~3× avg CIV drug (10 competitors)
-    ("CV",  "Promethazine/Codeine", 0.52),  # dominant over 2 other CV drugs
+    ("CV",  "Promethazine/Codeine", 0.60),  # dominant over 2 other CV drugs
 ]
 
 # ---------------------------------------------------------------------------
