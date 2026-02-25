@@ -21,8 +21,9 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# DEA number pattern: 2 letters followed by 7 digits
-_DEA_PATTERN = re.compile(r"^([A-Za-z]{2})(\d{7})$")
+# DEA number pattern: registrant-type letter, second char (letter OR digit
+# for pharmacy/hospital registrants), then 7 digits.
+_DEA_PATTERN = re.compile(r"^([A-Za-z][A-Za-z0-9])(\d{7})$")
 
 # Valid registrant type codes (first letter of DEA number)
 _VALID_REGISTRANT_TYPES = set("ABCDEFGMPRSTUX")

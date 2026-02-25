@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import re
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -42,14 +43,15 @@ _COL_SYNONYMS: Dict[str, List[str]] = {
     "dea_number": [
         "dea number", "dea#", "dea no", "dea num", "dea",
         "dea registration", "dea reg",
+        "dea registration number", "dea reg number", "dea reg no",
     ],
     "npi": [
         "npi", "npi number", "npi#", "national provider identifier",
         "provider id", "provider identifier",
     ],
     "address": [
-        "address", "street address", "address line 1", "addr",
-        "office address", "practice address",
+        "address", "street address", "address line 1", "address 1",
+        "addr", "office address", "practice address",
     ],
     "zip": [
         "zip", "zip code", "zipcode", "postal code", "zip/postal",
@@ -64,13 +66,19 @@ _COL_SYNONYMS: Dict[str, List[str]] = {
     "city": [
         "city", "town", "municipality",
     ],
+    "expiration_date": [
+        "expiration date", "expiration", "exp date", "exp", "expires",
+        "expiry date", "expiry",
+    ],
 }
 
 
 def _match_column(df_cols: List[str], field: str) -> Optional[str]:
     """Return the first df column that matches any synonym for `field`."""
     synonyms = _COL_SYNONYMS.get(field, [])
-    lower_cols = {c.strip().lower(): c for c in df_cols}
+    # Normalize: lowercase and treat underscores as spaces so that
+    # columns like DEA_Registration_Number match "dea registration number"
+    lower_cols = {c.strip().lower().replace("_", " "): c for c in df_cols}
     for syn in synonyms:
         if syn.lower() in lower_cols:
             return lower_cols[syn.lower()]
@@ -329,6 +337,32 @@ class DEAParser:
                 else "Primary Care"
             )
 
+            # ---- Expiration date — auto-renew expired registrations ----
+            exp_col = col_map.get("expiration_date")
+            if exp_col and pd.notna(row.get(exp_col)):
+                exp_raw = str(row[exp_col]).strip().replace("-", "").replace("/", "")
+                exp_date = None
+                # Try YYYYMMDD (e.g. 20240430) or MMDDYYYY
+                for fmt_len, y_slice, m_slice, d_slice in [
+                    (8, slice(0, 4), slice(4, 6), slice(6, 8)),    # YYYYMMDD
+                    (8, slice(4, 8), slice(0, 2), slice(2, 4)),    # MMDDYYYY
+                ]:
+                    if len(exp_raw) == fmt_len:
+                        try:
+                            exp_date = date(
+                                int(exp_raw[y_slice]),
+                                int(exp_raw[m_slice]),
+                                int(exp_raw[d_slice]),
+                            )
+                            break
+                        except ValueError:
+                            continue
+                if exp_date:
+                    today = date.today()
+                    if exp_date < today:
+                        exp_date = exp_date.replace(year=exp_date.year + 3)
+                    record["expiration_date"] = exp_date.strftime("%m/%d/%Y")
+
             prescribers_raw.append(record)
 
         self.prescribers = prescribers_raw
@@ -364,11 +398,33 @@ class DEAParser:
 
         elif lower.endswith(".json"):
             try:
-                data = json.loads(file_bytes.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                raise ValueError(f"Invalid JSON file: {exc}") from exc
+                text = file_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                text = file_bytes.decode("latin-1")
 
-            # Support both a bare array and {"prescribers": [...]} / {"data": [...]}
+            # Try standard JSON first (array or wrapped object)
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError:
+                # Fall back to NDJSON (newline-delimited JSON — one object per line)
+                rows = []
+                for line_num, line in enumerate(text.splitlines(), start=1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        obj = json.loads(line)
+                        if isinstance(obj, dict):
+                            rows.append(obj)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError(
+                            f"Invalid JSON on line {line_num}: {exc}"
+                        ) from exc
+                if not rows:
+                    raise ValueError("JSON file is empty or contains no valid objects.")
+                return pd.DataFrame(rows, dtype=str)
+
+            # Handle standard JSON formats
             if isinstance(data, list):
                 rows = data
             elif isinstance(data, dict):
