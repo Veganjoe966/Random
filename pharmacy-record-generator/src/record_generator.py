@@ -43,12 +43,14 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Drugs guaranteed to appear in every generated report
 # ---------------------------------------------------------------------------
-# Each entry: (schedule, drug_name)  — name must match drug_database entries.
+# Each entry: (schedule, drug_name, schedule_fraction)
+#   schedule_fraction — share of that schedule's total slots allocated to this drug.
+#   Tuned so each drug is clearly the highest-volume in its schedule while
+#   remaining plausible for a real high-volume pharmacy.
 _PINNED_CONTROLLED = [
-    ("CIV", "Alprazolam"),
-    ("CV",  "Promethazine/Codeine"),
+    ("CIV", "Alprazolam",           0.30),  # ~3× avg CIV drug (10 competitors)
+    ("CV",  "Promethazine/Codeine", 0.52),  # dominant over 2 other CV drugs
 ]
-_PINNED_SCHEDULE_FRACTION = 0.45  # fraction of each schedule's total that goes to the pinned drug
 
 # ---------------------------------------------------------------------------
 # Patient Name / Address Data
@@ -463,13 +465,13 @@ class RecordGenerator:
             for sched, drug_list in CONTROLLED_DRUGS.items()
         }
 
-        # Each pinned drug receives _PINNED_SCHEDULE_FRACTION of its schedule's
-        # total slots; those slots are deducted from the random-fill pool so the
+        # Each pinned drug receives its per-drug fraction of its schedule's total
+        # slots; those slots are deducted from the random-fill pool so the
         # overall count stays the same.
         sched_totals = dict(schedule_counts)
         pinned_counts: Dict[Tuple[str, str], int] = {
-            (p_sched, p_name): max(3, int(sched_totals.get(p_sched, 0) * _PINNED_SCHEDULE_FRACTION))
-            for p_sched, p_name in _PINNED_CONTROLLED
+            (p_sched, p_name): max(3, int(sched_totals.get(p_sched, 0) * frac))
+            for p_sched, p_name, frac in _PINNED_CONTROLLED
         }
 
         pinned_deductions: Dict[str, int] = defaultdict(int)
@@ -482,7 +484,7 @@ class RecordGenerator:
         }
 
         # --- Guaranteed fills for pinned drugs ---
-        for p_sched, p_name in _PINNED_CONTROLLED:
+        for p_sched, p_name, _ in _PINNED_CONTROLLED:
             p_drug = _drug_lookup.get(p_sched, {}).get(p_name)
             if p_drug is None:
                 logger.warning("Pinned drug '%s' (%s) not found in database — skipping.", p_name, p_sched)
