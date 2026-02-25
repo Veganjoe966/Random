@@ -41,6 +41,16 @@ from .validators import generate_valid_dea, generate_valid_npi
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Drugs guaranteed to appear in every generated report
+# ---------------------------------------------------------------------------
+# Each entry: (schedule, drug_name)  — name must match drug_database entries.
+_PINNED_CONTROLLED = [
+    ("CIV", "Alprazolam"),
+    ("CV",  "Promethazine/Codeine"),
+]
+_PINNED_MIN_RECORDS = 3   # minimum fills generated per pinned drug per report
+
+# ---------------------------------------------------------------------------
 # Patient Name / Address Data
 # ---------------------------------------------------------------------------
 
@@ -447,7 +457,71 @@ class RecordGenerator:
             ("CV",   n_cv),
         ]
 
+        # Build lookup: schedule → drug_name → drug dict, for pinned access
+        _drug_lookup: Dict[str, Dict[str, DrugDef]] = {
+            sched: {d["name"]: d for d in drug_list}
+            for sched, drug_list in CONTROLLED_DRUGS.items()
+        }
+
+        # Reduce each schedule's random-fill count by the pinned minimums so
+        # the overall total stays the same.
+        pinned_deductions: Dict[str, int] = defaultdict(int)
+        for p_sched, p_name in _PINNED_CONTROLLED:
+            pinned_deductions[p_sched] += _PINNED_MIN_RECORDS
+
+        adjusted_counts = {
+            sched: max(0, cnt - pinned_deductions.get(sched, 0))
+            for sched, cnt in dict(schedule_counts)
+        }
+
+        # --- Guaranteed fills for pinned drugs ---
+        for p_sched, p_name in _PINNED_CONTROLLED:
+            p_drug = _drug_lookup.get(p_sched, {}).get(p_name)
+            if p_drug is None:
+                logger.warning("Pinned drug '%s' (%s) not found in database — skipping.", p_name, p_sched)
+                continue
+            for _ in range(_PINNED_MIN_RECORDS):
+                fill_date = random.choice(date_pool)
+                patient, pat_id = self._get_or_create_patient(patients, p_drug, fill_date)
+                fill_history[pat_id][p_drug["name"]].append(fill_date)
+                prescriber  = self._select_prescriber(p_drug, p_sched)
+                ndc_result  = self.ndc_service.lookup(p_drug["search_term"])
+                strength    = _weighted_choice(p_drug["strengths"], p_drug["strength_weights"])
+                quantity    = _weighted_choice(p_drug["typical_quantities"], p_drug["qty_weights"])
+                days_supply = random.choice(p_drug["days_supply_options"])
+                payment, insurance = self._pick_payment(is_controlled=True)
+                records.append({
+                    "rx_number":            "",
+                    "fill_date":            _format_date(fill_date),
+                    "patient_name":         patient["patient_name"],
+                    "patient_dob":          patient["patient_dob"],
+                    "patient_address":      patient["patient_address"],
+                    "patient_city":         patient["patient_city"],
+                    "patient_state":        patient["patient_state"],
+                    "patient_zip":          patient["patient_zip"],
+                    "drug_name":            p_drug["name"],
+                    "brand_name":           random.choice(p_drug["brand_names"]),
+                    "strength":             strength,
+                    "dosage_form":          p_drug["dosage_form"],
+                    "quantity":             quantity,
+                    "days_supply":          days_supply,
+                    "prescriber_name":      prescriber["prescriber_name"],
+                    "prescriber_dea":       prescriber.get("dea_number", ""),
+                    "prescriber_npi":       prescriber.get("npi", ""),
+                    "prescriber_specialty": prescriber.get("specialty", ""),
+                    "prescriber_zip":       prescriber.get("zip", ""),
+                    "ndc":                  ndc_result.ndc,
+                    "ndc_labeler":          ndc_result.labeler,
+                    "payment_type":         payment,
+                    "insurance_plan":       insurance,
+                    "controlled_schedule":  SCHEDULE_LABELS[p_sched],
+                    "diagnosis":            random.choice(p_drug["diagnoses"]),
+                    "_sort_date":           fill_date,
+                })
+
+        # --- Random fills for remaining slots ---
         for schedule, count in schedule_counts:
+            count = adjusted_counts[schedule]
             if count <= 0:
                 continue
             drugs = CONTROLLED_DRUGS[schedule]
