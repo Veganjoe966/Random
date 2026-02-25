@@ -85,6 +85,12 @@ def _match_column(df_cols: List[str], field: str) -> Optional[str]:
     return None
 
 
+def _is_pharmacy_name(name: str) -> bool:
+    """Return True if the name belongs to a pharmacy / institution, not a practitioner."""
+    lower = name.lower()
+    return any(kw in lower for kw in _PHARMACY_KEYWORDS)
+
+
 # ---------------------------------------------------------------------------
 # Simulated Prescriber Pool (used when no file is uploaded)
 # ---------------------------------------------------------------------------
@@ -116,6 +122,14 @@ _LAST_NAMES = [
 ]
 
 _REGISTRANT_TYPES = list("ABMPS")   # Common for practitioners
+
+# Keywords that identify a pharmacy / institution rather than a practitioner.
+# Checked case-insensitively against the full name string.
+_PHARMACY_KEYWORDS = {
+    "pharmacy", "phcy", "drug store", "drugstore", "apothecary",
+    "compounding", "dispensary", "rx center", "drug co",
+    "drugs", "chemist", "medicaid pharmacy", "mail order",
+}
 
 # One representative (city, zip) per state for auto-generated prescribers
 _STATE_CITY_ZIP: Dict[str, tuple] = {
@@ -277,6 +291,11 @@ class DEAParser:
                 record["last_name"]  = ln
             else:
                 record["prescriber_name"] = f"Provider_{row_num}"
+
+            # ---- Filter out pharmacies / institutions ----
+            if _is_pharmacy_name(record["prescriber_name"]):
+                logger.debug("Row %d skipped — pharmacy/institution name: %s", row_num, record["prescriber_name"])
+                continue
 
             # ---- DEA ----
             dea_raw = ""
