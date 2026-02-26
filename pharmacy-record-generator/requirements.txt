@@ -1,0 +1,21 @@
+# 90-Day Pharmacy Dispensing Record Generator
+# Core dependencies
+
+# Web framework / UI
+streamlit>=1.35.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Excel export
+openpyxl>=3.1.0
+
+# Excel import (legacy .xls support)
+xlrd>=2.0.1
+
+# HTTP client for FDA NDC API
+requests>=2.31.0
+
+# Optional: faster progress bar rendering
+tqdm>=4.66.0

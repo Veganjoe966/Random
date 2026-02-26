@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# Streamlit — ignore secrets/credentials but track config.toml
+# Note: must use .streamlit/* (not .streamlit/) so git can un-ignore a file
+# inside the directory; a trailing / ignores the whole directory and negation
+# rules cannot override that.
+.streamlit/*
+!.streamlit/config.toml
+
+# Runtime artifacts
+logs/*.log
+cache/*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generated output (keep sample, exclude real outputs)
+sample_output/*.xlsx
+sample_output/*.csv
+!sample_output/sample_dea_prescribers.csv
